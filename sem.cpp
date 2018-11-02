@@ -1,8 +1,12 @@
 #include <stdio.h>
-#include "cc.h"
-#include "semutil.h"
-#include "sem.h"
-#include "sym.h"
+
+extern "C" {
+    #include "cc.h"
+    #include "scan.h"
+    #include "semutil.h"
+    #include "sem.h"
+    #include "sym.h"
+}
 
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/STLExtras.h"

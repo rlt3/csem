@@ -1,9 +1,13 @@
 #include <iostream>
 #include <cstring>
-#include "scan.h"
-#include "semutil.h"
-#include "sem.h"
-#include "sym.h"
+
+extern "C" {
+    #include "cc.h"
+    #include "scan.h"
+    #include "semutil.h"
+    #include "sem.h"
+    #include "sym.h"
+}
 
 extern void yyerror (const char *msg);
 extern int yyparse();

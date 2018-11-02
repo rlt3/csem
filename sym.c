@@ -8,6 +8,8 @@
 # include "cc.h"
 # include "sym.h"
 
+extern void yyerror (const char *msg);
+
 # define STABSIZE 119			   /* hash table size for strings */
 # define ITABSIZE 37			   /* hash table size for identifiers */
 # define MAXSTK   1000

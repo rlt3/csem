@@ -15,6 +15,7 @@ char localtypes[MAXLOCS];    /* types of local variables   */
 int localwidths[MAXLOCS];    /* widths of local variables  */
 
 extern struct sem_rec **top;
+extern void yyerror (const char *msg);
 
 /*
  * currtemp - returns the current temporary number

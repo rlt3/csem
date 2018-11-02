@@ -1,4 +1,6 @@
-#include <string>
+#ifndef CC_H
+#define CC_H
+
 void yyerror (const char *msg);
 
 /* symbol table entry */
@@ -37,3 +39,5 @@ struct sem_rec {
    } back;
    struct sem_rec *s_false;	/* false backpatch list */
 };
+
+#endif

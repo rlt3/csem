@@ -1,10 +1,11 @@
-#include <string>
 #include <stdio.h>
 #include <ctype.h>
 #include "y.tab.h"
 #include "cc.h"
 #include "scan.h"
 #include "sym.h"
+
+extern void yyerror (const char *msg);
 
 #define MAXTOK 100	/* maximum token size */
 

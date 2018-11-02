@@ -1,3 +1,6 @@
+#ifndef SYM_H
+#define SYM_H
+
 void dump(int, FILE *);
 void new_block();
 void exit_block();
@@ -10,3 +13,5 @@ char *slookup(const char *);
 int hash(const char *);
 char *alloc(unsigned);
 void save_rec(struct sem_rec *);
+
+#endif

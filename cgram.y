@@ -8,11 +8,14 @@
      5. etc.
   */
 #include <stdio.h>
-#include "cc.h"
-#include "scan.h"
-#include "semutil.h"
-#include "sem.h"
-#include "sym.h"
+
+extern "C" {
+    #include "cc.h"
+    #include "scan.h"
+    #include "semutil.h"
+    #include "sem.h"
+    #include "sym.h"
+}
 
 int yylex();
 
