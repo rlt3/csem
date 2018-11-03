@@ -1,4 +1,5 @@
 *.o
 *.swp
 *.swo
-cgram.cpp
+csem
+src/cgram.cpp

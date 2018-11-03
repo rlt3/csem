@@ -12,24 +12,26 @@ all: yacc build
 
 HEADERS = $(wildcare include/*.h) $(wildcard include/*.hpp)
 
-CFILES = semutil.c sym.c scan.c
+CFILES = src/semutil.c src/sym.c src/scan.c
 COBJECTS = obj/semutil.o obj/sym.o obj/scan.o
 
-CPPFILES = main.cpp cgram.cpp sem.cpp
+CPPFILES = src/main.cpp src/cgram.cpp src/sem.cpp
 CPPOBJECTS = obj/main.o obj/cgram.o obj/sem.o
 
 # Don't delete TARGET or any object file if make is killed or interrupted
 .PRECIOUS: $(TARGET) $(CFILES) $(CPPFILES)
 
 yacc:
-	yacc -vd cgram.y
-	mv y.tab.c cgram.cpp
+	yacc -vd src/cgram.y
+	mv y.tab.c src/cgram.cpp
+	rm y.tab.h y.output
 
 build: $(HEADERS) $(CPPFILES) $(CFILES)
-	$(CC) -g -c $(CFILES)
-	$(CXX) -g -c $(CPPFILES) $(CFLAGS)
+	$(CC)  -I./include/ -g -c $(CFILES)
+	$(CXX) -I./include/ -g -c $(CPPFILES) $(CFLAGS)
 	mv *.o obj/
 	$(CXX) $(CPPOBJECTS) $(COBJECTS) $(CFLAGS) $(LIBS) -o $(TARGET)
+	rm *.dwo
 
 clean:
-	rm -f $(TARGET) obj/*.o 
+	rm -f $(TARGET) src/cgram.cpp obj/*.o 
