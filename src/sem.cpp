@@ -29,6 +29,17 @@ extern "C" {
 #include <string>
 #include <vector>
 
+/*
+ * These have been extern'd from semutil.c. This handles local types of 
+ * variables inside blocks, how many have been declared, and other things
+ * I haven't quite figured out yet.
+ */
+extern int formalnum;               /* number of formal arguments */
+extern char formaltypes[MAXARGS];   /* types of formal arguments  */
+extern int localnum;                /* number of local variables  */
+extern char localtypes[MAXLOCS];    /* types of local variables   */
+extern int localwidths[MAXLOCS];    /* widths of local variables  */
+
 using namespace llvm;
 
 static LLVMContext TheContext;
@@ -202,20 +213,70 @@ struct sem_rec *exprs(struct sem_rec *l, struct sem_rec *e)
 }
 
 /*
- * fhead - beginning of function body
+ * Take a constructed function id_entry and add it to the LLVM AST.
  */
-void fhead(struct id_entry *p)
+void fhead (struct id_entry *E)
 {
-   fprintf(stderr, "sem: fhead not implemented\n");
+    std::vector<Type*> args;
+    Type* func_type;
+    GlobalValue::LinkageTypes linkage;
+	FunctionType *FT;
+    Function *F;
+    BasicBlock *B;
+
+    for (int i = 0; i < formalnum; i++) {
+        switch (formaltypes[i]) {
+            case 'f': args.push_back(Type::getDoubleTy(TheContext)); break;
+            case 'i': args.push_back(Type::getInt8Ty(TheContext)); break;
+            default:  yyerror("type failure!");
+        }
+    }
+
+    switch (E->i_type) {
+        case T_INT:    func_type = Type::getInt8Ty(TheContext); break;
+        case T_DOUBLE: func_type = Type::getDoubleTy(TheContext); break;
+    }
+	FT = FunctionType::get(func_type, makeArrayRef(args), false);
+
+    if (strcmp(E->i_name, "main") == 0) {
+        linkage = Function::ExternalLinkage;
+    } else {
+        linkage = Function::InternalLinkage;
+    }
+	
+    F = Function::Create(FT, linkage, E->i_name, TheModule.get());
+    B = BasicBlock::Create(TheContext, "entry", F);
+    Builder.SetInsertPoint(B);
+
+    Value *val = ConstantInt::get(Type::getInt8Ty(TheContext), 0);
+    Builder.CreateRet(val);
+
+    if (verifyFunction(*F, &errs())) {
+        yyerror("IR verification failed");
+    }
 }
 
 /*
- * fname - function declaration
+ * Create and fill up an id_entry with the correct information.
  */
-struct id_entry *fname(int t, const char *id)
+struct id_entry*
+fname (int type, const char *id)
 {
-   fprintf(stderr, "sem: fname not implemented `%s'\n", id);
-   return ((struct id_entry *) NULL);
+    struct id_entry *E = lookup(id, 0);
+
+    /* add function to hash table if it doesn't exist */
+    if (!E)
+        E = install(id, 0);
+
+    /* cannot have two functions of the same name */
+    if (E->i_defined)
+        yyerror("cannot declare function more than once");
+
+    E->i_type = type;
+	E->i_scope = GLOBAL;
+	E->i_defined = true;
+
+    return E;
 }
 
 /*
@@ -231,7 +292,7 @@ void ftail()
  */
 struct sem_rec *id(const char *x)
 {
-   fprintf(stderr, "sem: id not implemented\n");
+   fprintf(stderr, "sem: id not implemented for `%s'\n", x);
    return ((struct sem_rec *) NULL);
 }
 
@@ -367,29 +428,13 @@ struct sem_rec *string(const char *s)
 }
 
 void
-emit_ir ()
+init_IR ()
 {
-    // Make the module, which holds all the code.
     TheModule = llvm::make_unique<Module>("LEROY", TheContext);
+}
 
-    std::vector<Type*> argTypes;
-	FunctionType *FT =
-        FunctionType::get(Type::getInt8Ty(TheContext), makeArrayRef(argTypes), false);
-
-	Function *F =
-      Function::Create(FT, Function::ExternalLinkage, "main", TheModule.get());
-	
-    BasicBlock *BB = BasicBlock::Create(TheContext, "entry", F);
-    Builder.SetInsertPoint(BB);
-
-    Value *val = ConstantInt::get(Type::getInt8Ty(TheContext), 0);
-    Builder.CreateRet(val);
-
-    if (verifyFunction(*F, &errs())) {
-        fprintf(stderr, "\n\n");
-        return;
-    }
-
-    // Print out all of the generated code.
+void
+emit_IR ()
+{
     TheModule->print(outs(), nullptr);
 }

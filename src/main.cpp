@@ -18,17 +18,20 @@ extern int yyparse();
 int
 main (int argc, char **argv)
 {
+    init_IR();
+
     enterblock();
     initlex();
     enterblock();
     if (yyparse())
         yyerror("syntax error");
-    emit_ir();
+
+    emit_IR();
 
     /*
-     * NEXT STEPS:
-     *  - COMPILE 'old' CODE WITH GCC and LINK .o FILES using G++
-     *  - Add arbitrary function definitions from fname/fhead/ftail to IR Builder
+     * TODO:
+     *  - Chain blocks together into an AST.
+     *  - Use value of some variable in CreateRet for functions.
      */
 
 	exit(0);

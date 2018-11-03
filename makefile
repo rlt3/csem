@@ -33,5 +33,8 @@ build: $(HEADERS) $(CPPFILES) $(CFILES)
 	$(CXX) $(CPPOBJECTS) $(COBJECTS) $(CFLAGS) $(LIBS) -o $(TARGET)
 	rm *.dwo
 
+test:
+	./$(TARGET) < input.c
+
 clean:
 	rm -f $(TARGET) src/cgram.cpp obj/*.o 

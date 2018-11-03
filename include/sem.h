@@ -1,3 +1,6 @@
+#ifndef SEM_H
+#define SEM_H
+
 void backpatch(struct sem_rec *, int);
 void bgnstmt();
 struct sem_rec *call(const char *, struct sem_rec *);
@@ -35,4 +38,8 @@ struct sem_rec *rel(const char *, struct sem_rec *, struct sem_rec *);
 struct sem_rec *set(const char *, struct sem_rec *, struct sem_rec *);
 void startloopscope();
 struct sem_rec *string(const char *);
-void emit_ir();
+
+void init_IR ();
+void emit_IR ();
+
+#endif

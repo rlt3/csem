@@ -1,11 +1,9 @@
-# include <stdio.h>
-# include <stdlib.h>
-# include "semutil.h"
-# include "cc.h"
-# include "sem.h"
-# include "sym.h"
-# define MAXARGS 50
-# define MAXLOCS 50
+#include <stdio.h>
+#include <stdlib.h>
+#include "semutil.h"
+#include "cc.h"
+#include "sem.h"
+#include "sym.h"
 
 int ntmp = 0;                /* last temporary number      */
 int formalnum;               /* number of formal arguments */
@@ -114,7 +112,6 @@ int nexttemp()
 {
    return ++ntmp;
 }
-
 
 /*
  * node - allocate a semantic node with fields a, b, c, d
