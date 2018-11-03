@@ -31,7 +31,7 @@ build: $(HEADERS) $(CPPFILES) $(CFILES)
 	$(CXX) -I./include/ -g -c $(CPPFILES) $(CFLAGS)
 	mv *.o obj/
 	$(CXX) $(CPPOBJECTS) $(COBJECTS) $(CFLAGS) $(LIBS) -o $(TARGET)
-	rm *.dwo
+	rm -f *.dwo
 
 test:
 	./$(TARGET) < input.c
