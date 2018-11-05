@@ -119,8 +119,9 @@ con (const char *x)
      * Use 'anything' part of record to hold our value. This is used int
      * doret to make a retval of the constant here.
      */
-    struct sem_rec *R = (struct sem_rec *) alloc(sizeof(*R));
-    int v = atoi(x);
+    struct sem_rec *R = node(currtemp(), T_INT, NULL, NULL);
+    int v;
+    sscanf(x, "%d", &v);
     R->anything = (void*) ConstantInt::get(Type::getInt8Ty(TheContext), v);
     return R;
 }
@@ -310,10 +311,10 @@ ftail()
 /*
  * id - variable reference
  */
-struct sem_rec *id(const char *x)
+struct sem_rec *
+id (const char *x)
 {
-   fprintf(stderr, "sem: id not implemented for `%s'\n", x);
-   return ((struct sem_rec *) NULL);
+    return node(currtemp(), T_LBL, NULL, NULL);
 }
 
 /*
@@ -390,7 +391,8 @@ struct sem_rec *rel(const char *op, struct sem_rec *x, struct sem_rec *y)
 /*
  * set - assignment operators
  */
-struct sem_rec *set(const char *op, struct sem_rec *x, struct sem_rec *y)
+struct sem_rec *
+set (const char *op, struct sem_rec *x, struct sem_rec *y)
 {
   /* assign the value of expression y to the lval x */
   struct sem_rec *p, *cast_y;
