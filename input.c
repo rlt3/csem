@@ -1,13 +1,11 @@
 int
-main (int argc)
+main (int argc, int argv)
 {
-    int x;
-    x = 0;
-    return x;
+    return 26;
 }
 
 int
 foo (int bar, double baz)
 {
-    return bar;
+    return 5;
 }

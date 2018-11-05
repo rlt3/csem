@@ -31,6 +31,8 @@ struct id_entry {
 
 /* semantic record */
 struct sem_rec {
+    void *anything; /* for talking between C++ LLVM and C */
+
    int s_place;			/* temporary number */
    int s_mode;			/* type */
    union {

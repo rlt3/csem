@@ -58,12 +58,10 @@ void backpatch(struct sem_rec *p, int k)
 /*
  * bgnstmt - encountered the beginning of a statement
  */
-void bgnstmt()
+void
+bgnstmt()
 {
-  extern int lineno;
-
-  printf("bgnstmt %d\n", lineno);
-  //   fprintf(stderr, "sem: bgnstmt not implemented\n");
+    /* todo ? */
 }
 
 /*
@@ -114,10 +112,17 @@ struct sem_rec *ccor(struct sem_rec *e1, int m, struct sem_rec *e2)
 /*
  * con - constant reference in an expression
  */
-struct sem_rec *con(const char *x)
+struct sem_rec*
+con (const char *x)
 {
-   fprintf(stderr, "sem: con not implemented\n");
-   return ((struct sem_rec *) NULL);
+    /*
+     * Use 'anything' part of record to hold our value. This is used int
+     * doret to make a retval of the constant here.
+     */
+    struct sem_rec *R = (struct sem_rec *) alloc(sizeof(*R));
+    int v = atoi(x);
+    R->anything = (void*) ConstantInt::get(Type::getInt8Ty(TheContext), v);
+    return R;
 }
 
 /*
@@ -181,9 +186,13 @@ void doifelse(struct sem_rec *e, int m1, struct sem_rec *n,
 /*
  * doret - return statement
  */
-void doret(struct sem_rec *e)
+void
+doret (struct sem_rec *R)
 {
-   fprintf(stderr, "sem: doret not implemented\n");
+    if (!R)
+        Builder.CreateRetVoid();
+    else
+        Builder.CreateRet((Value*) R->anything);
 }
 
 /*
@@ -224,6 +233,7 @@ void fhead (struct id_entry *E)
     Function *F;
     BasicBlock *B;
 
+    /* handle all function arguments */
     for (int i = 0; i < formalnum; i++) {
         switch (formaltypes[i]) {
             case 'f': args.push_back(Type::getDoubleTy(TheContext)); break;
@@ -232,12 +242,14 @@ void fhead (struct id_entry *E)
         }
     }
 
+    /* handle function return type */
     switch (E->i_type) {
         case T_INT:    func_type = Type::getInt8Ty(TheContext); break;
         case T_DOUBLE: func_type = Type::getDoubleTy(TheContext); break;
     }
 	FT = FunctionType::get(func_type, makeArrayRef(args), false);
 
+    /* need main to be entry point into program for linking */
     if (strcmp(E->i_name, "main") == 0) {
         linkage = Function::ExternalLinkage;
     } else {
@@ -248,12 +260,13 @@ void fhead (struct id_entry *E)
     B = BasicBlock::Create(TheContext, "entry", F);
     Builder.SetInsertPoint(B);
 
-    Value *val = ConstantInt::get(Type::getInt8Ty(TheContext), 0);
-    Builder.CreateRet(val);
+    /* Add the ret value of the function to the builder */
+    //Value *val = ConstantInt::get(Type::getInt8Ty(TheContext), 0);
+    //Builder.CreateRet(val);
 
-    if (verifyFunction(*F, &errs())) {
-        yyerror("IR verification failed");
-    }
+    //if (verifyFunction(*F, &errs())) {
+    //    yyerror("IR verification failed");
+    //}
 }
 
 /*
@@ -276,15 +289,22 @@ fname (int type, const char *id)
 	E->i_scope = GLOBAL;
 	E->i_defined = true;
 
+    /* need to enter the block to let hash table do internal work */
+    enterblock();
+    /* then need to reset argument count variables */
+    formalnum = 0;
+    localnum = 0;
+
     return E;
 }
 
 /*
  * ftail - end of function body
  */
-void ftail()
+void
+ftail()
 {
-   fprintf(stderr, "sem: ftail not implemented\n");
+    leaveblock();
 }
 
 /*
