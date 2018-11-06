@@ -231,16 +231,18 @@ static std::map<std::string, AllocaInst*> local_values;
 AllocaInst*
 create_func_alloca (Function *F, int type, int width, std::string var)
 {
+    Value *arr_size = NULL;
     IRBuilder<> B(&F->getEntryBlock(), F->getEntryBlock().begin());
-    /*
-     * TODO: Need to handle array types (bigger widths).
-     */
+
+    if (width > 1)
+        arr_size = ConstantInt::get(Type::getInt8Ty(TheContext), width);
+
     switch (type) {
         case 'f':
-            return B.CreateAlloca(Type::getDoubleTy(TheContext), nullptr, var);
+            return B.CreateAlloca(Type::getDoubleTy(TheContext), arr_size, var);
         case 'i':
         default:
-            return B.CreateAlloca(Type::getInt8Ty(TheContext), nullptr, var);
+            return B.CreateAlloca(Type::getInt8Ty(TheContext), arr_size, var);
     }
 }
 
