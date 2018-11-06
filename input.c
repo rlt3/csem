@@ -7,7 +7,7 @@ main (int argc, int argv)
     return x;
 }
 
-double
+int
 foo (int bar, double baz)
 {
     return 58;

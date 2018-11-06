@@ -46,7 +46,7 @@ using namespace llvm;
 static LLVMContext TheContext;
 static IRBuilder<> Builder(TheContext);
 static std::unique_ptr<Module> TheModule;
-static std::map<std::string, Value *> NamedValues;
+static std::map<std::string, AllocaInst*> local_values;
 
 /*
  * backpatch - backpatch list of quadruples starting at p with k
@@ -223,8 +223,6 @@ struct sem_rec *exprs(struct sem_rec *l, struct sem_rec *e)
    return ((struct sem_rec *) NULL);
 }
 
-static std::map<std::string, AllocaInst*> local_values;
-
 /*
  * Create an allocated instance of a variable inside the 'entry' of a function.
  */
@@ -345,7 +343,10 @@ ftail()
 struct sem_rec *
 id (const char *x)
 {
-    return node(currtemp(), T_LBL, NULL, NULL);
+    struct sem_rec *R = node(currtemp(), T_LBL, NULL, NULL);
+    R->anything = (void*) local_values[std::string(x)];
+    R->name = x;
+    return R;
 }
 
 /*
@@ -386,10 +387,31 @@ struct sem_rec *n()
 /*
  * op1 - unary operators
  */
-struct sem_rec *op1(const char *op, struct sem_rec *y)
+struct sem_rec *
+op1 (const char *op, struct sem_rec *y)
 {
-   fprintf(stderr, "sem: op1 not implemented\n");
-   return ((struct sem_rec *) NULL);
+    Value *variable;
+
+    variable = (Value*) y->anything;
+
+    switch (*op) {
+        case '@':
+            /*
+             * Very confusing. 'variable' first takes the value of the instance
+             * of the variable inside the semantic record 'y' which is basically
+             * a pointer. Then we create a 'load' or dereference of that
+             * variable and overwrite the semantic record with that value.
+             */
+            y->anything = (void*) Builder.CreateLoad(variable, std::string(y->name));
+            break;
+        case '~':
+        case '-':
+        default:
+           fprintf(stderr, "sem: op1 %s not implemented\n", op);
+            return NULL;
+    }
+
+    return y;
 }
 
 /*
@@ -425,42 +447,52 @@ struct sem_rec *rel(const char *op, struct sem_rec *x, struct sem_rec *y)
 struct sem_rec *
 set (const char *op, struct sem_rec *x, struct sem_rec *y)
 {
+    Value *variable, *value;
+
+    variable = (Value*) x->anything;
+    value = (Value*) y->anything;
+
+    Builder.CreateStore(value, variable);
+
+    return NULL;
+
   /* assign the value of expression y to the lval x */
-  struct sem_rec *p, *cast_y;
+  //struct sem_rec *p, *cast_y;
 
-  if(*op!='\0' || x==NULL || y==NULL){
-    fprintf(stderr, "sem: set not implemented\n");
-    return((struct sem_rec *) NULL);
-  }
+  //printf("%s %p (%p) %p (%p)\n", op, x, x->anything, y, y->anything);
 
-  /* if for type consistency of x and y */
-  cast_y = y;
-  if((x->s_mode & T_DOUBLE) && !(y->s_mode & T_DOUBLE)){
-    
-    /*cast y to a double*/
-    printf("t%d = cvf t%d\n", nexttemp(), y->s_place);
-    cast_y = node(currtemp(), T_DOUBLE, (struct sem_rec *) NULL,
-		  (struct sem_rec *) NULL);
-  }
-  else if((x->s_mode & T_INT) && !(y->s_mode & T_INT)){
+  //if(*op!='\0' || x==NULL || y==NULL){
+  //  fprintf(stderr, "sem: set not implemented\n");
+  //  return((struct sem_rec *) NULL);
+  //}
 
-    /*convert y to integer*/
-    printf("t%d = cvi t%d\n", nexttemp(), y->s_place);
-    cast_y = node(currtemp(), T_INT, (struct sem_rec *) NULL,
-		  (struct sem_rec *) NULL);
-  }
+  ///* if for type consistency of x and y */
+  //cast_y = y;
+  //if((x->s_mode & T_DOUBLE) && !(y->s_mode & T_DOUBLE)){
+  //
+  //  /*cast y to a double*/
+  //  printf("t%d = cvf t%d\n", nexttemp(), y->s_place);
+  //  cast_y = node(currtemp(), T_DOUBLE, (struct sem_rec *) NULL,
+  //  	  (struct sem_rec *) NULL);
+  //}
+  //else if((x->s_mode & T_INT) && !(y->s_mode & T_INT)){
 
-  /*output quad for assignment*/
-  if(x->s_mode & T_DOUBLE)
-    printf("t%d := t%d =f t%d\n", nexttemp(), 
-	   x->s_place, cast_y->s_place);
-  else
-    printf("t%d := t%d =i t%d\n", nexttemp(), 
-	   x->s_place, cast_y->s_place);
+  //  /*convert y to integer*/
+  //  printf("t%d = cvi t%d\n", nexttemp(), y->s_place);
+  //  cast_y = node(currtemp(), T_INT, (struct sem_rec *) NULL,
+  //  	  (struct sem_rec *) NULL);
+  //}
 
-  /*create a new node to allow just created temporary to be referenced later */
-  return(node(currtemp(), (x->s_mode&~(T_ARRAY)),
-	      (struct sem_rec *)NULL, (struct sem_rec *)NULL));
+  ///*output quad for assignment*/
+  //if(x->s_mode & T_DOUBLE)
+  //  printf("t%d := t%d =f t%d\n", nexttemp(),
+  //     x->s_place, cast_y->s_place);
+  //else
+  //  printf("t%d := t%d =i t%d\n", nexttemp(),
+  //     x->s_place, cast_y->s_place);
+
+  ///*create a new node to allow just created temporary to be referenced later */
+  //return(node(currtemp(), (x->s_mode&~(T_ARRAY)), (struct sem_rec *)NULL, (struct sem_rec *)NULL));
 }
 
 /*
