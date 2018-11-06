@@ -11,6 +11,7 @@ char formaltypes[MAXARGS];   /* types of formal arguments  */
 int localnum;                /* number of local variables  */
 char localtypes[MAXLOCS];    /* types of local variables   */
 int localwidths[MAXLOCS];    /* widths of local variables  */
+struct id_entry* localentries[MAXLOCS];   /* entries for local variables */
 
 extern struct sem_rec **top;
 extern void yyerror (const char *msg);
@@ -50,6 +51,7 @@ struct id_entry *dcl(struct id_entry *p, int type, int scope)
    }
    else if (level > 2 && p->i_scope != PARAM) {
       p->i_offset = localnum;
+      localentries[localnum] = p;
       localwidths[localnum] = p->i_width;
       if (p->i_type & T_DOUBLE)
          localtypes[localnum++] = 'f';

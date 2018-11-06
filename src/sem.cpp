@@ -39,6 +39,7 @@ extern char formaltypes[MAXARGS];   /* types of formal arguments  */
 extern int localnum;                /* number of local variables  */
 extern char localtypes[MAXLOCS];    /* types of local variables   */
 extern int localwidths[MAXLOCS];    /* widths of local variables  */
+extern struct id_entry* localentries[MAXLOCS];   /* entries for local variables */
 
 using namespace llvm;
 
@@ -222,10 +223,32 @@ struct sem_rec *exprs(struct sem_rec *l, struct sem_rec *e)
    return ((struct sem_rec *) NULL);
 }
 
+static std::map<std::string, AllocaInst*> local_values;
+
+/*
+ * Create an allocated instance of a variable inside the 'entry' of a function.
+ */
+AllocaInst*
+create_func_alloca (Function *F, int type, int width, std::string var)
+{
+    IRBuilder<> B(&F->getEntryBlock(), F->getEntryBlock().begin());
+    /*
+     * TODO: Need to handle array types (bigger widths).
+     */
+    switch (type) {
+        case 'f':
+            return B.CreateAlloca(Type::getDoubleTy(TheContext), nullptr, var);
+        case 'i':
+        default:
+            return B.CreateAlloca(Type::getInt8Ty(TheContext), nullptr, var);
+    }
+}
+
 /*
  * Take a constructed function id_entry and add it to the LLVM AST.
  */
-void fhead (struct id_entry *E)
+void
+fhead (struct id_entry *E)
 {
     std::vector<Type*> args;
     Type* func_type;
@@ -261,9 +284,15 @@ void fhead (struct id_entry *E)
     B = BasicBlock::Create(TheContext, "entry", F);
     Builder.SetInsertPoint(B);
 
-    /* Add the ret value of the function to the builder */
-    //Value *val = ConstantInt::get(Type::getInt8Ty(TheContext), 0);
-    //Builder.CreateRet(val);
+    /* Create the instance of stack memory for each local variable */
+    for (int i = 0; i < localnum; i++) {
+        auto var = std::string(localentries[i]->i_name);
+        auto val = create_func_alloca(F, localtypes[i], localwidths[i], var);
+        /*
+         * store the local variable's instance and name into the map.
+         */
+        local_values[var] = val;
+    }
 
     //if (verifyFunction(*F, &errs())) {
     //    yyerror("IR verification failed");
