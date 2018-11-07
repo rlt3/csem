@@ -3,7 +3,7 @@ main (int argc, int argv)
 {
     int y[10];
     int x;
-    x = 26;
+    x = argc;
     return x;
 }
 

@@ -39,6 +39,7 @@ extern char formaltypes[MAXARGS];   /* types of formal arguments  */
 extern int localnum;                /* number of local variables  */
 extern char localtypes[MAXLOCS];    /* types of local variables   */
 extern int localwidths[MAXLOCS];    /* widths of local variables  */
+extern struct id_entry* formalentries[MAXLOCS];   /* entries for parameters */
 extern struct id_entry* localentries[MAXLOCS];   /* entries for local variables */
 
 using namespace llvm;
@@ -256,9 +257,10 @@ fhead (struct id_entry *E)
 	FunctionType *FT;
     Function *F;
     BasicBlock *B;
+    int i;
 
-    /* handle all function arguments */
-    for (int i = 0; i < formalnum; i++) {
+    /* push back each function argument */
+    for (i = 0; i < formalnum; i++) {
         switch (formaltypes[i]) {
             case 'f': args.push_back(Type::getDoubleTy(TheContext)); break;
             case 'i': args.push_back(Type::getInt8Ty(TheContext)); break;
@@ -281,22 +283,37 @@ fhead (struct id_entry *E)
     }
 	
     F = Function::Create(FT, linkage, E->i_name, TheModule.get());
+
+    /* name each function argument */
+    i = 0;
+    for (auto &arg : F->getArgumentList())
+        arg.setName(formalentries[i++]->i_name);
+
     B = BasicBlock::Create(TheContext, "entry", F);
     Builder.SetInsertPoint(B);
 
-    /* Create the instance of stack memory for each local variable */
-    for (int i = 0; i < localnum; i++) {
-        auto var = std::string(localentries[i]->i_name);
-        auto val = create_func_alloca(F, localtypes[i], localwidths[i], var);
-        /*
-         * store the local variable's instance and name into the map.
-         */
-        local_values[var] = val;
-    }
+    /* Start rebuilding the local values for the function scope */
+    local_values.clear();
 
-    //if (verifyFunction(*F, &errs())) {
-    //    yyerror("IR verification failed");
-    //}
+    /* 
+     * We have binded the arguments to create function F. Now we must allocate
+     * instances of them so they can be referenced and also mutated.
+     */
+    i = 0;
+	for (auto &arg : F->args()) {
+        std::string name = arg.getName();
+        auto value = create_func_alloca(F, formaltypes[i++], 1, name);
+        /* assign the initial value of the parameter (from a function call) */
+        Builder.CreateStore(&arg, value);
+        local_values[name] = value;
+	}
+
+    /* Create the instance of stack memory for each local variable */
+    for (i = 0; i < localnum; i++) {
+        std::string name = std::string(localentries[i]->i_name);
+        auto value = create_func_alloca(F, localtypes[i], localwidths[i], name);
+        local_values[name] = value;
+    }
 }
 
 /*
@@ -344,6 +361,11 @@ struct sem_rec *
 id (const char *x)
 {
     struct sem_rec *R = node(currtemp(), T_LBL, NULL, NULL);
+    std::string var(x);
+    if (local_values.find(var) == local_values.end()) {
+        yyerror("undefined reference");
+        exit(1);
+    }
     R->anything = (void*) local_values[std::string(x)];
     R->name = x;
     return R;

@@ -25,8 +25,8 @@ main (int argc, char **argv)
     enterblock();
     if (yyparse())
         yyerror("syntax error");
-
-    emit_IR();
+    else
+        emit_IR();
 
     /*
      * TODO:
