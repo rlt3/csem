@@ -439,10 +439,37 @@ op1 (const char *op, struct sem_rec *y)
 /*
  * op2 - arithmetic operators
  */
-struct sem_rec *op2(const char *op, struct sem_rec *x, struct sem_rec *y)
+struct sem_rec *
+op2(const char *op, struct sem_rec *x, struct sem_rec *y)
 {
-   fprintf(stderr, "sem: op2 not implemented\n");
-   return ((struct sem_rec *) NULL);
+    Value *L, *R;
+
+    L = (Value*) x->anything;
+    R = (Value*) y->anything;
+
+    switch (*op) {
+        case '+':
+            x->anything = (void*) Builder.CreateAdd(L, R, "addtmp");
+            break;
+        case '-':
+            x->anything = (void*) Builder.CreateSub(L, R, "subtmp");
+            break;
+        case '*':
+            x->anything = (void*) Builder.CreateMul(L, R, "multmp");
+            break;
+        case '/':
+            x->anything = (void*) Builder.CreateSDiv(L, R, "divtmp");
+            break;
+        case '%':
+            x->anything = (void*) Builder.CreateSRem(L, R, "remtmp");
+            break;
+        default:
+           fprintf(stderr, "sem: op2 %s not implemented\n", op);
+           return NULL;
+    }
+
+    return x;
+
 }
 
 /*
