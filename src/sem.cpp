@@ -286,7 +286,7 @@ fhead (struct id_entry *E)
 
     /* name each function argument */
     i = 0;
-    for (auto &arg : F->getArgumentList())
+    for (auto &arg : F->args())
         arg.setName(formalentries[i++]->i_name);
 
     B = BasicBlock::Create(TheContext, "entry", F);
