@@ -5,6 +5,8 @@ main (int argc, int argv)
     double y;
     y = 2;
     x = 4 * y;
+    if (x == 8)
+        x = 20;
     return x;
 }
 

@@ -79,7 +79,7 @@ struct sem_rec *call(const char *f, struct sem_rec *args)
 /*
  * ccand - logical and
  */
-struct sem_rec *ccand(struct sem_rec *e1, int m, struct sem_rec *e2)
+struct sem_rec *ccand(struct sem_rec *e1, void* m, struct sem_rec *e2)
 {
    fprintf(stderr, "sem: ccand not implemented\n");
    return ((struct sem_rec *) NULL);
@@ -106,7 +106,7 @@ struct sem_rec *ccnot(struct sem_rec *e)
 /*
  * ccor - logical or
  */
-struct sem_rec *ccor(struct sem_rec *e1, int m, struct sem_rec *e2)
+struct sem_rec *ccor(struct sem_rec *e1, void* m, struct sem_rec *e2)
 {
    fprintf(stderr, "sem: ccor not implemented\n");
    return ((struct sem_rec *) NULL);
@@ -149,7 +149,7 @@ void docontinue()
 /*
  * dodo - do statement
  */
-void dodo(int m1, int m2, struct sem_rec *e, int m3)
+void dodo(void* m1, void* m2, struct sem_rec *e, void* m3)
 {
    fprintf(stderr, "sem: dodo not implemented\n");
 }
@@ -157,8 +157,8 @@ void dodo(int m1, int m2, struct sem_rec *e, int m3)
 /*
  * dofor - for statement
  */
-void dofor(int m1, struct sem_rec *e2, int m2, struct sem_rec *n1,
-           int m3, struct sem_rec *n2, int m4)
+void dofor(void* m1, struct sem_rec *e2, void* m2, struct sem_rec *n1,
+           void* m3, struct sem_rec *n2, void* m4)
 {
    fprintf(stderr, "sem: dofor not implemented\n");
 }
@@ -175,7 +175,7 @@ void dogoto(const char *id)
  * doif - one-arm if statement
  */
 void
-doif(struct sem_rec *R, int m1, int m2)
+doif(struct sem_rec *R, void* m1, void* m2)
 {
    fprintf(stderr, "sem: doif not implemented\n");
 }
@@ -183,8 +183,8 @@ doif(struct sem_rec *R, int m1, int m2)
 /*
  * doifelse - if then else statement
  */
-void doifelse(struct sem_rec *e, int m1, struct sem_rec *n,
-                         int m2, int m3)
+void doifelse(struct sem_rec *e, void* m1, struct sem_rec *n,
+                         void* m2, void* m3)
 {
    fprintf(stderr, "sem: doifelse not implemented\n");
 }
@@ -219,8 +219,8 @@ doret (struct sem_rec *R)
 /*
  * dowhile - while statement
  */
-void dowhile(int m1, struct sem_rec *e, int m2, struct sem_rec *n,
-             int m3)
+void dowhile(void* m1, struct sem_rec *e, void* m2, struct sem_rec *n,
+             void* m3)
 {
    fprintf(stderr, "sem: dowhile not implemented\n");
 }
@@ -429,10 +429,10 @@ void labeldcl(const char *id)
 /*
  * m - generate label and return next temporary number
  */
-int m()
+void*
+m (int is_lead)
 {
-   fprintf(stderr, "sem: m not implemented\n");
-   return (0);
+    return NULL;
 }
 
 /*
@@ -524,15 +524,15 @@ struct sem_rec *opb(const char *op, struct sem_rec *x, struct sem_rec *y)
 struct sem_rec *
 rel (const char *op, struct sem_rec *x, struct sem_rec *y)
 {
-    Value *L, *R;
+    //Value *L, *R;
 
-    L = (Value*) x->anything;
-    R = cast_pair(x, y);
+    //L = (Value*) x->anything;
+    //R = cast_pair(x, y);
 
     switch (*op) {
         case '=':
-            x->anything = (void*) Builder.CreateICmpEQ(L, R, "eqtmp");
-            break;
+            //x->anything = (void*) Builder.CreateICmpEQ(L, R, "eqtmp");
+            //break;
 
         case '!':
         case '>':
@@ -552,6 +552,8 @@ struct sem_rec *
 set (const char *op, struct sem_rec *x, struct sem_rec *y)
 {
     Value *variable, *value;
+
+    printf("SET\n");
 
     variable = (Value*) x->anything;
     value = (Value*) y->anything;
