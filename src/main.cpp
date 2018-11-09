@@ -26,13 +26,7 @@ main (int argc, char **argv)
     if (yyparse())
         yyerror("syntax error");
     else
-        emit_IR();
-
-    /*
-     * TODO:
-     *  - Chain blocks together into an AST.
-     *  - Use value of some variable in CreateRet for functions.
-     */
+       emit_IR();
 
 	exit(0);
 }
