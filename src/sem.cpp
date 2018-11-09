@@ -28,6 +28,7 @@ extern "C" {
 #include <memory>
 #include <string>
 #include <vector>
+#include <utility>
 
 /*
  * These have been extern'd from semutil.c. This handles local types of 
@@ -52,6 +53,29 @@ static Function* TheFunction;
 /* The block inside the function where IR is being put */
 static BasicBlock* TheBlock;
 static std::map<std::string, AllocaInst*> local_values;
+static std::map<const char *, std::pair<BasicBlock*, int>> local_labels;
+
+/*
+ * Create a label entry into the local_labels table. If the label should be
+ * defined then 'declared' should be 1. Otherwise, it should be 0. In all cases
+ * a BasicBlock is created and stored under the label's name.
+ */
+BasicBlock*
+create_label_entry (const char *id, int declared)
+{
+    if (local_labels.find(id) == local_labels.end()) {
+        BasicBlock* B = BasicBlock::Create(TheContext, id, TheFunction);
+        local_labels[id] = std::make_pair(B, declared);
+    }
+
+    if (local_labels[id].second) {
+        yyerror("cannot declare label twice within scope");
+        exit(1);
+    }
+
+    local_labels[id].second = declared;
+    return local_labels[id].first;
+}
 
 /*
  * backpatch - backpatch list of quadruples starting at p with k
@@ -169,9 +193,13 @@ void dofor(void* m1, struct sem_rec *e2, void* m2, struct sem_rec *n1,
 /*
  * dogoto - goto statement
  */
-void dogoto(const char *id)
+void
+dogoto (const char *id)
 {
-   fprintf(stderr, "sem: dogoto not implemented\n");
+    /* Create a label entry but do not define it yet */
+    BasicBlock *B = create_label_entry(id, 0);
+    /* Create a branch to the block even if that block has not been defined */
+    Builder.CreateBr(B);
 }
 
 /*
@@ -210,10 +238,38 @@ doif(struct sem_rec *R, void* m1, void* m2)
 /*
  * doifelse - if then else statement
  */
-void doifelse(struct sem_rec *e, void* m1, struct sem_rec *n,
+void doifelse(struct sem_rec *R1, void* m1, struct sem_rec *R2,
                          void* m2, void* m3)
 {
-   fprintf(stderr, "sem: doifelse not implemented\n");
+    Value *cond;
+    BasicBlock *thenB, *elseB, *mergeB;
+
+    cond = (Value*) R1->anything;
+    thenB = (BasicBlock*) m1;
+    elseB  = (BasicBlock*) m2;
+    mergeB = (BasicBlock*) m3;
+
+    /* Every label must end with a branch or return instruction */
+    Builder.SetInsertPoint(thenB);
+    Builder.CreateBr(mergeB);
+
+    Builder.SetInsertPoint(elseB);
+    Builder.CreateBr(mergeB);
+
+    /*
+     * Using the last main block of the function, we create a conditional
+     * branch to the other labels.
+     */
+    Builder.SetInsertPoint(TheBlock);
+    Builder.CreateCondBr(cond, thenB, elseB);
+
+    /*
+     * Here we update the main block of the function to be the merge (or
+     * 'continue') block of the function. This lets us have arbitrarily many
+     * if statements.
+     */
+    TheBlock = mergeB;
+    Builder.SetInsertPoint(TheBlock);
 }
 
 /*
@@ -351,8 +407,9 @@ fhead (struct id_entry *E)
     B = BasicBlock::Create(TheContext, "entry", F);
     Builder.SetInsertPoint(B);
 
-    /* Start rebuilding the local values for the function scope */
+    /* Start rebuilding the local values and labels for the function scope */
     local_values.clear();
+    local_labels.clear();
 
     /* 
      * We have binded the arguments to create function F. Now we must allocate
@@ -449,9 +506,17 @@ struct sem_rec *indx(struct sem_rec *x, struct sem_rec *i)
 /*
  * labeldcl - process a label declaration
  */
-void labeldcl(const char *id)
+void
+labeldcl(const char *id)
 {
-   fprintf(stderr, "sem: labeldcl not implemented\n");
+    /* 
+     * Create a label if it first doesn't exist. Then set the IR's insert point
+     * to that label's block.
+     */
+    BasicBlock *B = create_label_entry(id, 1);
+    /* need to make sure end of block has an return or branch statement */
+    Builder.CreateBr(B);
+    Builder.SetInsertPoint(B);
 }
 
 /*

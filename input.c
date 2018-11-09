@@ -6,14 +6,19 @@ main (int argc, int argv)
     y = argc;
     x = 2 * y;
     if (x == 8)
-        x = 20;
-    if (x == 20)
-        x = 1;
+        goto exit;
+    else
+        x = 50;
+exit:
     return x;
 }
 
 int
 foo (int bar, double baz)
 {
-    return 58;
+    if (bar == 2)
+        goto exit;
+    bar = baz;
+exit:
+    return bar;
 }
