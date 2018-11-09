@@ -47,7 +47,10 @@ using namespace llvm;
 static LLVMContext TheContext;
 static IRBuilder<> Builder(TheContext);
 static std::unique_ptr<Module> TheModule;
+/* The current function being parsed */
 static Function* TheFunction;
+/* The block inside the function where IR is being put */
+static BasicBlock* TheBlock;
 static std::map<std::string, AllocaInst*> local_values;
 
 /*
@@ -177,7 +180,31 @@ void dogoto(const char *id)
 void
 doif(struct sem_rec *R, void* m1, void* m2)
 {
-   fprintf(stderr, "sem: doif not implemented\n");
+    Value *cond;
+    BasicBlock *then, *merge;
+
+    cond = (Value*) R->anything;
+    then = (BasicBlock*) m1;
+    merge = (BasicBlock*) m2;
+
+    /* Every label must end with a branch or return instruction */
+    Builder.SetInsertPoint(then);
+    Builder.CreateBr(merge);
+
+    /*
+     * Using the last main block of the function, we create a conditional
+     * branch to the other labels.
+     */
+    Builder.SetInsertPoint(TheBlock);
+    Builder.CreateCondBr(cond, then, merge);
+
+    /*
+     * Here we update the main block of the function to be the merge (or
+     * 'continue') block of the function. This lets us have arbitrarily many
+     * if statements.
+     */
+    TheBlock = merge;
+    Builder.SetInsertPoint(TheBlock);
 }
 
 /*
@@ -348,6 +375,7 @@ fhead (struct id_entry *E)
     }
 
     TheFunction = F;
+    TheBlock = B;
 }
 
 /*
@@ -430,9 +458,14 @@ void labeldcl(const char *id)
  * m - generate label and return next temporary number
  */
 void*
-m (int is_lead)
+m ()
 {
-    return NULL;
+    /* Generate unique label names using a static counter */
+    static int i = 0;
+    std::string label = "L" + std::to_string(i++);
+    BasicBlock *BB = BasicBlock::Create(TheContext, label, TheFunction);
+    Builder.SetInsertPoint(BB);
+    return BB;
 }
 
 /*
@@ -524,15 +557,15 @@ struct sem_rec *opb(const char *op, struct sem_rec *x, struct sem_rec *y)
 struct sem_rec *
 rel (const char *op, struct sem_rec *x, struct sem_rec *y)
 {
-    //Value *L, *R;
+    Value *L, *R;
 
-    //L = (Value*) x->anything;
-    //R = cast_pair(x, y);
+    L = (Value*) x->anything;
+    R = cast_pair(x, y);
 
     switch (*op) {
         case '=':
-            //x->anything = (void*) Builder.CreateICmpEQ(L, R, "eqtmp");
-            //break;
+            x->anything = (void*) Builder.CreateICmpEQ(L, R, "eqtmp");
+            break;
 
         case '!':
         case '>':
@@ -552,8 +585,6 @@ struct sem_rec *
 set (const char *op, struct sem_rec *x, struct sem_rec *y)
 {
     Value *variable, *value;
-
-    printf("SET\n");
 
     variable = (Value*) x->anything;
     value = (Value*) y->anything;

@@ -57,7 +57,7 @@ yyerror (const char *msg)
 %type <rec_ptr> cexpro prog
 %type <id_ptr> dcl dclr fname
 %type <inttype> type
-%type <void_ptr> mS m
+%type <void_ptr> m
 %%
 prog    : externs		{}
         ;
@@ -110,8 +110,7 @@ args    : type dclr		{ dcl($2, $1, PARAM); }
 s	:			{ startloopscope(); }
 	;
 
-mS      :                       { $$ = m(0); }
-m      :                       { $$ = m(1); }
+m       :                       { $$ = m(); }
         ;
 
 n       :                       { $$ = n(); }
@@ -137,15 +136,15 @@ b	: 			{ bgnstmt(); }
 
 stmt    : expr ';'
                 { }
-        | IF '(' cexpr ')' mS lblstmt m
+        | IF '(' cexpr ')' m lblstmt m
                 { doif($3, $5, $7); }
-        | IF '(' cexpr ')' mS lblstmt ELSE n m lblstmt m
+        | IF '(' cexpr ')' m lblstmt ELSE n m lblstmt m
                 { doifelse($3, $5, $8, $9, $11); }
-        | WHILE '(' mS cexpr ')' m s lblstmt n m
+        | WHILE '(' m cexpr ')' m s lblstmt n m
                 { dowhile($3, $4, $6, $9, $10); }
-        | DO mS s lblstmt WHILE '(' m cexpr ')' ';' m
+        | DO m s lblstmt WHILE '(' m cexpr ')' ';' m
                 { dodo($2, $7, $8, $11); }
-        | FOR '(' expro ';' mS cexpro ';' m expro n ')' m s lblstmt n m
+        | FOR '(' expro ';' m cexpro ';' m expro n ')' m s lblstmt n m
                 { dofor($5, $6, $8, $10, $12, $15, $16); }
 	| CONTINUE ';'
 		{ docontinue(); }
@@ -173,8 +172,8 @@ cexpr   : expr EQ expr          { $$ = rel("==", $1, $3); }
         | expr GE expr          { $$ = rel(">=", $1, $3); }
         | expr LT expr          { $$ = rel("<",  $1, $3); }
         | expr GT expr          { $$ = rel(">",  $1, $3); }
-        | cexpr AND mS cexpr    { $$ = ccand($1, $3, $4); }
-        | cexpr OR mS cexpr     { $$ = ccor($1, $3, $4); }
+        | cexpr AND m cexpr    { $$ = ccand($1, $3, $4); }
+        | cexpr OR m cexpr     { $$ = ccor($1, $3, $4); }
         | NOT cexpr             { $$ = ccnot($2); }
         | expr                  { $$ = ccexpr($1); }
         ;

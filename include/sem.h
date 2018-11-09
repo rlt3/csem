@@ -29,7 +29,7 @@ struct sem_rec *gen(const char *, struct sem_rec *, struct sem_rec *, int);
 struct sem_rec *id(const char *);
 struct sem_rec *indx(struct sem_rec *x, struct sem_rec *i);
 void labeldcl(const char *);
-void* m(int is_lead);
+void* m();
 struct sem_rec *n();
 struct sem_rec *op1(const char *, struct sem_rec *);
 struct sem_rec *op2(const char *, struct sem_rec *, struct sem_rec *);
