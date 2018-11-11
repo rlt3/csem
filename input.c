@@ -8,7 +8,8 @@ main (int argc, int argv)
     if (x == 8)
         goto exit;
     else
-        x = 50;
+        while (x < 50)
+            x = x + 1;
 exit:
     return x;
 }

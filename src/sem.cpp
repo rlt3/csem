@@ -302,10 +302,31 @@ doret (struct sem_rec *R)
 /*
  * dowhile - while statement
  */
-void dowhile(void* m1, struct sem_rec *e, void* m2, struct sem_rec *n,
+void dowhile(void* m1, struct sem_rec *R, void* m2, struct sem_rec *n,
              void* m3)
 {
-   fprintf(stderr, "sem: dowhile not implemented\n");
+    Value *cond;
+    BasicBlock *loopB, *codeB, *exitB;
+
+    cond = (Value*) R->anything;
+    loopB = (BasicBlock*) m1;
+    codeB  = (BasicBlock*) m2;
+    exitB = (BasicBlock*) m3;
+
+    /* code jump to the loop for testing */
+    Builder.SetInsertPoint(codeB);
+    Builder.CreateBr(loopB);
+
+    /* the loop has the conditional jump */
+    Builder.SetInsertPoint(loopB);
+    Builder.CreateCondBr(cond, codeB, exitB);
+
+    /* the main block before the while jumps to the loop */
+    Builder.SetInsertPoint(TheBlock);
+    Builder.CreateBr(loopB);
+
+    TheBlock = exitB;
+    Builder.SetInsertPoint(TheBlock);
 }
 
 /*
@@ -633,8 +654,21 @@ rel (const char *op, struct sem_rec *x, struct sem_rec *y)
             break;
 
         case '!':
+            x->anything = (void*) Builder.CreateICmpNE(L, R, "netmp");
+            break;
+
         case '>':
+            if (op[1] == '\0')
+                x->anything = (void*) Builder.CreateICmpSGT(L, R, "sgttmp");
+            else
+                x->anything = (void*) Builder.CreateICmpSGE(L, R, "sgetmp");
+            break;
         case '<':
+            if (op[1] == '\0')
+                x->anything = (void*) Builder.CreateICmpSLT(L, R, "slttmp");
+            else
+                x->anything = (void*) Builder.CreateICmpSLE(L, R, "sletmp");
+            break;
         default:
             fprintf(stderr, "sem: rel %s not implemented\n", op);
             return NULL;
