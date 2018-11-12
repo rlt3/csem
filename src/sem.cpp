@@ -241,69 +241,50 @@ dogoto (const char *id)
  * doif - one-arm if statement
  */
 void
-doif(struct sem_rec *R, void* m1, void* m2)
+doif (void* mS, struct sem_rec *R, void* m1, void* m2)
 {
     Value *cond;
-    BasicBlock *then, *merge;
+    BasicBlock *startB, *thenB, *mergeB;
 
     cond = (Value*) R->anything;
-    then = (BasicBlock*) m1;
-    merge = (BasicBlock*) m2;
+    startB = (BasicBlock*) mS;
+    thenB = (BasicBlock*) m1;
+    mergeB = (BasicBlock*) m2;
 
-    /* Every label must end with a branch or return instruction */
-    Builder.SetInsertPoint(then);
-    Builder.CreateBr(merge);
+    Builder.SetInsertPoint(startB);
+    Builder.CreateCondBr(cond, thenB, mergeB);
 
-    /*
-     * Using the last main block of the function, we create a conditional
-     * branch to the other labels.
-     */
-    Builder.SetInsertPoint(TheBlock);
-    Builder.CreateCondBr(cond, then, merge);
+    Builder.SetInsertPoint(thenB);
+    Builder.CreateBr(mergeB);
 
-    /*
-     * Here we update the main block of the function to be the merge (or
-     * 'continue') block of the function. This lets us have arbitrarily many
-     * if statements.
-     */
-    TheBlock = merge;
     Builder.SetInsertPoint(TheBlock);
 }
 
 /*
  * doifelse - if then else statement
  */
-void doifelse(struct sem_rec *R1, void* m1, struct sem_rec *R2,
+void
+doifelse (void* mS, struct sem_rec *R1, void* m1, struct sem_rec *R2,
                          void* m2, void* m3)
 {
     Value *cond;
-    BasicBlock *thenB, *elseB, *mergeB;
+    BasicBlock *startB, *thenB, *elseB, *mergeB;
 
     cond = (Value*) R1->anything;
+    startB = (BasicBlock*) mS;
     thenB = (BasicBlock*) m1;
     elseB  = (BasicBlock*) m2;
     mergeB = (BasicBlock*) m3;
 
-    /* Every label must end with a branch or return instruction */
+    Builder.SetInsertPoint(startB);
+    Builder.CreateCondBr(cond, thenB, elseB);
+
     Builder.SetInsertPoint(thenB);
     Builder.CreateBr(mergeB);
 
     Builder.SetInsertPoint(elseB);
     Builder.CreateBr(mergeB);
 
-    /*
-     * Using the last main block of the function, we create a conditional
-     * branch to the other labels.
-     */
-    Builder.SetInsertPoint(TheBlock);
-    Builder.CreateCondBr(cond, thenB, elseB);
-
-    /*
-     * Here we update the main block of the function to be the merge (or
-     * 'continue') block of the function. This lets us have arbitrarily many
-     * if statements.
-     */
-    TheBlock = mergeB;
     Builder.SetInsertPoint(TheBlock);
 }
 
@@ -337,13 +318,15 @@ doret (struct sem_rec *R)
 /*
  * dowhile - while statement
  */
-void dowhile(void* m1, struct sem_rec *R, void* m2, struct sem_rec *n,
-             void* m3)
+void
+dowhile (void* mS, void* m1,
+            struct sem_rec *R, void* m2, struct sem_rec *n, void* m3)
 {
     Value *cond;
-    BasicBlock *loopB, *codeB, *exitB;
+    BasicBlock *startB, *loopB, *codeB, *exitB;
 
     cond = (Value*) R->anything;
+    startB = (BasicBlock*) mS;
     loopB = (BasicBlock*) m1;
     codeB  = (BasicBlock*) m2;
     exitB = (BasicBlock*) m3;
@@ -357,10 +340,9 @@ void dowhile(void* m1, struct sem_rec *R, void* m2, struct sem_rec *n,
     Builder.CreateCondBr(cond, codeB, exitB);
 
     /* the main block before the while jumps to the loop */
-    Builder.SetInsertPoint(TheBlock);
+    Builder.SetInsertPoint(startB);
     Builder.CreateBr(loopB);
 
-    TheBlock = exitB;
     Builder.SetInsertPoint(TheBlock);
 }
 
@@ -534,6 +516,22 @@ fname (int type, const char *id)
 void
 ftail()
 {
+    /* 
+     * Handle implicit fall-throughs of blocks. If a block has no instructions
+     * in it, then simply create a branch to the next block.
+     */
+    Function *F = TheFunction;
+    for (auto it = F->begin(); it != F->end(); it++) {
+        if (it->size() == 0) {
+            if (std::next(it) != F->end()) {
+                Builder.SetInsertPoint(&(*it));
+                Builder.CreateBr(&(*std::next(it)));
+            } else {
+                yyerror("cannot having implicit fallthrough on last block!");
+                exit(1);
+            }
+        }
+    }
     leaveblock();
 }
 
@@ -584,6 +582,15 @@ labeldcl(const char *id)
 }
 
 /*
+ * Return the current block.
+ */
+void*
+m_get ()
+{
+    return TheBlock;
+}
+
+/*
  * m - generate label and return next temporary number
  */
 void*
@@ -593,6 +600,7 @@ m ()
     static int i = 0;
     std::string label = "L" + std::to_string(i++);
     BasicBlock *BB = BasicBlock::Create(TheContext, label, TheFunction);
+    TheBlock = BB;
     Builder.SetInsertPoint(BB);
     return BB;
 }

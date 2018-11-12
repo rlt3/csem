@@ -57,7 +57,7 @@ yyerror (const char *msg)
 %type <rec_ptr> cexpro prog
 %type <id_ptr> dcl dclr fname
 %type <inttype> type
-%type <void_ptr> m
+%type <void_ptr> m mS
 %%
 prog    : externs		{}
         ;
@@ -110,6 +110,7 @@ args    : type dclr		{ dcl($2, $1, PARAM); }
 s	:			{ startloopscope(); }
 	;
 
+mS      :                       { $$ = m_get(); }
 m       :                       { $$ = m(); }
         ;
 
@@ -136,12 +137,12 @@ b	: 			{ bgnstmt(); }
 
 stmt    : expr ';'
                 { }
-        | IF '(' cexpr ')' m lblstmt m
-                { doif($3, $5, $7); }
-        | IF '(' cexpr ')' m lblstmt ELSE n m lblstmt m
-                { doifelse($3, $5, $8, $9, $11); }
-        | WHILE '(' m cexpr ')' m s lblstmt n m
-                { dowhile($3, $4, $6, $9, $10); }
+        | mS IF '(' cexpr ')' m lblstmt m
+                { doif($1, $4, $6, $8); }
+        | mS IF '(' cexpr ')' m lblstmt ELSE n m lblstmt m
+                { doifelse($1, $4, $6, $9, $10, $12); }
+        | mS WHILE '(' m cexpr ')' m s lblstmt n m
+                { dowhile($1, $4, $5, $7, $10, $11); }
         | DO m s lblstmt WHILE '(' m cexpr ')' ';' m
                 { dodo($2, $7, $8, $11); }
         | FOR '(' expro ';' m cexpro ';' m expro n ')' m s lblstmt n m
