@@ -2,9 +2,7 @@ int
 main (int argc, int argv)
 {
     int x;
-    double y;
-    y = argc;
-    x = 2 * y;
+    x = 2 * argc;
     if (x == 8)
         goto exit;
     else
@@ -12,14 +10,4 @@ main (int argc, int argv)
             x = x + 1;
 exit:
     return x;
-}
-
-int
-foo (int bar, double baz)
-{
-    if (bar == 2)
-        goto exit;
-    bar = baz;
-exit:
-    return bar;
 }

@@ -5,6 +5,7 @@ void yyerror (const char *msg);
 
 /* symbol table entry */
 struct id_entry {
+    void *anything;
    struct id_entry *i_link;	/* pointer to next entry on hash chain */
    const char *i_name;		/* pointer to name in string table */
    int i_type;			/* type code */

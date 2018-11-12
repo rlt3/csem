@@ -97,10 +97,45 @@ bgnstmt()
 /*
  * call - procedure invocation
  */
-struct sem_rec *call(const char *f, struct sem_rec *args)
+struct sem_rec *
+call (const char *f, struct sem_rec *argsR)
 {
-   fprintf(stderr, "sem: call not implemented\n");
-   return ((struct sem_rec *) NULL);
+    std::vector<Value*> args;
+    struct sem_rec *R;
+    struct id_entry *E;
+    Type *rettype;
+    Value *callInst;
+    Function *F;
+
+    /* have a reference to the first record */
+    R = argsR;
+
+    E = lookup(f, 0);
+    if (!E) {
+        fprintf(stderr, "cannot find function in namespace");
+        exit(1);
+    }
+
+    /* get the necessary values for the CreateCall function */
+    F = (Function*) E->anything;
+    while (argsR != NULL) {
+        args.push_back((Value*) argsR->anything);
+        argsR = argsR->back.s_link;
+    }
+
+    callInst = Builder.CreateCall(F, makeArrayRef(args), "callret");
+
+    rettype = TheFunction->getReturnType();
+
+    /* use R to carry the return value of the function */
+    if (rettype->isIntegerTy())
+        R->s_mode = T_INT;
+    else if (rettype->isDoubleTy())
+        R->s_mode = T_DOUBLE;
+
+    R->anything = (void*) callInst;
+
+    return R;
 }
 
 /*
@@ -340,10 +375,17 @@ void endloopscope(int m)
 /*
  * exprs - form a list of expressions
  */
-struct sem_rec *exprs(struct sem_rec *l, struct sem_rec *e)
+struct sem_rec *
+exprs (struct sem_rec *L, struct sem_rec *R)
 {
-   fprintf(stderr, "sem: exprs not implemented\n");
-   return ((struct sem_rec *) NULL);
+    struct sem_rec *LIST;
+    /* naively walk the list until the end is found and append */
+    LIST = L;
+    while (L->back.s_link)
+        L = L->back.s_link;
+    L->back.s_link = R;
+    R->back.s_link = NULL;
+    return LIST;
 }
 
 /*
@@ -419,6 +461,7 @@ fhead (struct id_entry *E)
     }
 	
     F = Function::Create(FT, linkage, E->i_name, TheModule.get());
+    E->anything = (void*) F;
 
     /* name each function argument */
     i = 0;
