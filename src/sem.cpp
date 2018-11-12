@@ -54,7 +54,17 @@ static Function* TheFunction;
 static BasicBlock* TheBlock;
 static std::map<std::string, AllocaInst*> local_values;
 static std::map<std::string, std::pair<BasicBlock*, int>> local_labels;
+static std::vector<std::pair<BasicBlock*, BasicBlock::iterator>> break_blocks;
+static std::vector<std::pair<BasicBlock*, BasicBlock::iterator>> cont_blocks;
+static std::vector<std::vector<std::pair<BasicBlock*, BasicBlock::iterator>>> loop_scopes;
 static int label_index = 0;
+
+BasicBlock*
+get_prev_block (BasicBlock *B)
+{
+    auto it = local_labels.find(B->getName().str());
+    return std::prev(it)->second.first;
+}
 
 /*
  * Create a label entry into the local_labels table. If the label should be
@@ -196,10 +206,14 @@ con (const char *x)
  * dobreak - break statement
  */
 void
-dobreak()
+dobreak ()
 {
-    std::string next_label = "L" + std::to_string(label_index);
-    BasicBlock *B = create_label_entry(next_label, 0);
+    /*
+     * We add the current block and an iterator the current block's last
+     * instruction. This lets us insert the branch to the end of the loop after
+     * that instruction later.
+     */
+    break_blocks.push_back(std::make_pair(TheBlock, std::prev(TheBlock->end())));
 }
 
 /*
@@ -207,7 +221,7 @@ dobreak()
  */
 void docontinue()
 {
-   fprintf(stderr, "sem: docontinue not implemented\n");
+    cont_blocks.push_back(std::make_pair(TheBlock, std::prev(TheBlock->end())));
 }
 
 /*
@@ -221,10 +235,52 @@ void dodo(void* m1, void* m2, struct sem_rec *e, void* m3)
 /*
  * dofor - for statement
  */
-void dofor(void* m1, struct sem_rec *e2, void* m2, struct sem_rec *n1,
-           void* m3, struct sem_rec *n2, void* m4)
+void dofor(void* mS, void* m1, struct sem_rec *R1, void* m2, struct sem_rec *R2,
+           void* m3, struct sem_rec *R3, void* m4)
 {
-   fprintf(stderr, "sem: dofor not implemented\n");
+    Value *cond;
+    BasicBlock *startB, *condB, *incB, *codeB, *exitB;
+
+    cond = (Value*) R1->anything;
+    startB = (BasicBlock*) mS;
+    condB = (BasicBlock*) m1;
+    incB = (BasicBlock*) m2;
+    codeB  = (BasicBlock*) m3;
+    exitB = (BasicBlock*) m4;
+
+    fprintf(stderr, "startB: `%s', condB: `%s', incB: `%s', code: `%s', exitB: `%s'\n",
+            startB->getName().data(), condB->getName().data(),
+            incB->getName().data(), codeB->getName().data(),
+            exitB->getName().data());
+
+    Builder.SetInsertPoint(startB);
+    Builder.CreateBr(condB);
+
+    Builder.SetInsertPoint(condB);
+    Builder.CreateCondBr(cond, codeB, exitB);
+
+    codeB = get_prev_block(exitB);
+    Builder.SetInsertPoint(codeB);
+    Builder.CreateBr(incB);
+
+    Builder.SetInsertPoint(incB);
+    Builder.CreateBr(condB);
+
+    for (auto &pair : break_blocks) {
+        BasicBlock *B  = pair.first;
+        BasicBlock::iterator it = pair.second;
+        Instruction *br = BranchInst::Create(exitB);
+        B->getInstList().insertAfter(it, br);
+    }
+    for (auto &pair : cont_blocks) {
+        BasicBlock *B  = pair.first;
+        BasicBlock::iterator it = pair.second;
+        Instruction *br = BranchInst::Create(incB);
+        B->getInstList().insertAfter(it, br);
+    }
+
+    endloopscope(0);
+    Builder.SetInsertPoint(TheBlock);
 }
 
 /*
@@ -253,9 +309,13 @@ doif (void* mS, struct sem_rec *R, void* m1, void* m2)
     thenB = (BasicBlock*) m1;
     mergeB = (BasicBlock*) m2;
 
+    fprintf(stderr, "startB: `%s', thenB: `%s', mergeB: `%s'\n",
+            startB->getName().data(), thenB->getName().data(), mergeB->getName().data());
+
     Builder.SetInsertPoint(startB);
     Builder.CreateCondBr(cond, thenB, mergeB);
 
+    thenB = get_prev_block(mergeB);
     Builder.SetInsertPoint(thenB);
     Builder.CreateBr(mergeB);
 
@@ -281,9 +341,11 @@ doifelse (void* mS, struct sem_rec *R1, void* m1, struct sem_rec *R2,
     Builder.SetInsertPoint(startB);
     Builder.CreateCondBr(cond, thenB, elseB);
 
+    thenB = get_prev_block(elseB);
     Builder.SetInsertPoint(thenB);
     Builder.CreateBr(mergeB);
 
+    elseB = get_prev_block(mergeB);
     Builder.SetInsertPoint(elseB);
     Builder.CreateBr(mergeB);
 
@@ -333,9 +395,9 @@ dowhile (void* mS, void* m1,
     codeB  = (BasicBlock*) m2;
     exitB = (BasicBlock*) m3;
 
-    /* code jump to the loop for testing */
-    Builder.SetInsertPoint(codeB);
-    Builder.CreateBr(loopB);
+    fprintf(stderr, "startB: `%s', loopB: `%s', codeB: `%s', exitB: `%s'\n",
+            startB->getName().data(), loopB->getName().data(), codeB->getName().data(),
+            exitB->getName().data());
 
     /* the loop has the conditional jump */
     Builder.SetInsertPoint(loopB);
@@ -345,15 +407,47 @@ dowhile (void* mS, void* m1,
     Builder.SetInsertPoint(startB);
     Builder.CreateBr(loopB);
 
+    /*
+     * Since there can be expressions within a while loop, we find where the
+     * loop exits, then go one block back and use that to jump back to the
+     * beginning of the loop.
+     */
+    codeB = get_prev_block(exitB);
+    Builder.SetInsertPoint(codeB);
+    Builder.CreateBr(loopB);
+
+    /*
+     * For each blocks that has a break, we insert a branch to the exit of the
+     * loop just after the last instruction recorded when that block had a
+     * break statement.
+     */
+    for (auto &pair : break_blocks) {
+        BasicBlock *B  = pair.first;
+        BasicBlock::iterator it = pair.second;
+        Instruction *br = BranchInst::Create(exitB);
+        B->getInstList().insertAfter(it, br);
+    }
+    for (auto &pair : cont_blocks) {
+        BasicBlock *B  = pair.first;
+        BasicBlock::iterator it = pair.second;
+        Instruction *br = BranchInst::Create(loopB);
+        B->getInstList().insertAfter(it, br);
+    }
+
+    endloopscope(0);
     Builder.SetInsertPoint(TheBlock);
 }
 
 /*
  * endloopscope - end the scope for a loop
  */
-void endloopscope(int m)
+void
+endloopscope (int m)
 {
-   fprintf(stderr, "sem: endloopscope not implemented\n");
+    cont_blocks = loop_scopes.back();
+    loop_scopes.pop_back();
+    break_blocks = loop_scopes.back();
+    loop_scopes.pop_back();
 }
 
 /*
@@ -521,11 +615,13 @@ ftail()
 {
     /* 
      * Handle implicit fall-throughs of blocks. If a block has no instructions
-     * in it, then simply create a branch to the next block.
+     * in it, then simply create a branch to the next block. If a block has
+     * instructions but not a terminating instruction (branch or ret) then 
+     * create branch to the next instruction.
      */
     Function *F = TheFunction;
     for (auto it = F->begin(); it != F->end(); it++) {
-        if (it->size() == 0) {
+        if (it->size() == 0 || !it->back().isTerminator()) {
             if (std::next(it) != F->end()) {
                 Builder.SetInsertPoint(&(*it));
                 Builder.CreateBr(&(*std::next(it)));
@@ -535,6 +631,7 @@ ftail()
             }
         }
     }
+    Builder.SetInsertPoint(TheBlock);
     leaveblock();
 }
 
@@ -572,7 +669,7 @@ struct sem_rec *indx(struct sem_rec *x, struct sem_rec *i)
  * labeldcl - process a label declaration
  */
 void
-labeldcl(const char *id)
+labeldcl (const char *id)
 {
     /* 
      * Create a label if it first doesn't exist. Then set the IR's insert point
@@ -601,6 +698,7 @@ m ()
 {
     /* Generate unique label names using a static counter */
     std::string label = "L" + std::to_string(label_index++);
+    fprintf(stderr, "m: %s\n", label.c_str());
     BasicBlock *B = create_label_entry(label, 1);
     TheBlock = B;
     Builder.SetInsertPoint(B);
@@ -750,9 +848,13 @@ set (const char *op, struct sem_rec *x, struct sem_rec *y)
 /*
  * startloopscope - start the scope for a loop
  */
-void startloopscope()
+void
+startloopscope ()
 {
-   fprintf(stderr, "sem: startloopscope not implemented\n");
+    loop_scopes.push_back(break_blocks);
+    loop_scopes.push_back(cont_blocks);
+    break_blocks.clear();
+    cont_blocks.clear();
 }
 
 /*

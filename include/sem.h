@@ -13,7 +13,7 @@ struct sem_rec *con(const char *);
 void dobreak();
 void docontinue();
 void dodo(void*, void*, struct sem_rec *, void*);
-void dofor(void*, struct sem_rec *, void*, struct sem_rec *, void*,
+void dofor(void*, void*, struct sem_rec *, void*, struct sem_rec *, void*,
            struct sem_rec *, void*);
 void dogoto(const char *);
 void doif(void*, struct sem_rec *, void*, void*);
