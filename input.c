@@ -8,6 +8,8 @@ main (int argc, int argv)
     } else {
         while (x < 50)
             x = x + 1;
+        if (x == 50)
+            x = 0;
     }
 exit:
     return x;

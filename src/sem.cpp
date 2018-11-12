@@ -53,7 +53,8 @@ static Function* TheFunction;
 /* The block inside the function where IR is being put */
 static BasicBlock* TheBlock;
 static std::map<std::string, AllocaInst*> local_values;
-static std::map<const char *, std::pair<BasicBlock*, int>> local_labels;
+static std::map<std::string, std::pair<BasicBlock*, int>> local_labels;
+static int label_index = 0;
 
 /*
  * Create a label entry into the local_labels table. If the label should be
@@ -61,14 +62,13 @@ static std::map<const char *, std::pair<BasicBlock*, int>> local_labels;
  * a BasicBlock is created and stored under the label's name.
  */
 BasicBlock*
-create_label_entry (const char *id, int declared)
+create_label_entry (std::string id, int declared)
 {
     if (local_labels.find(id) == local_labels.end()) {
         BasicBlock* B = BasicBlock::Create(TheContext, id, TheFunction);
         local_labels[id] = std::make_pair(B, declared);
-    }
-
-    if (local_labels[id].second) {
+    } else if (local_labels[id].second && declared) {
+        fprintf(stderr, "LABEL %s\n", id.c_str());
         yyerror("cannot declare label twice within scope");
         exit(1);
     }
@@ -195,9 +195,11 @@ con (const char *x)
 /*
  * dobreak - break statement
  */
-void dobreak()
+void
+dobreak()
 {
-   fprintf(stderr, "sem: dobreak not implemented\n");
+    std::string next_label = "L" + std::to_string(label_index);
+    BasicBlock *B = create_label_entry(next_label, 0);
 }
 
 /*
@@ -232,7 +234,7 @@ void
 dogoto (const char *id)
 {
     /* Create a label entry but do not define it yet */
-    BasicBlock *B = create_label_entry(id, 0);
+    BasicBlock *B = create_label_entry(std::string(id), 0);
     /* Create a branch to the block even if that block has not been defined */
     Builder.CreateBr(B);
 }
@@ -456,6 +458,7 @@ fhead (struct id_entry *E)
     /* Start rebuilding the local values and labels for the function scope */
     local_values.clear();
     local_labels.clear();
+    label_index = 0;
 
     /* 
      * We have binded the arguments to create function F. Now we must allocate
@@ -575,7 +578,7 @@ labeldcl(const char *id)
      * Create a label if it first doesn't exist. Then set the IR's insert point
      * to that label's block.
      */
-    BasicBlock *B = create_label_entry(id, 1);
+    BasicBlock *B = create_label_entry(std::string(id), 1);
     /* need to make sure end of block has an return or branch statement */
     Builder.CreateBr(B);
     Builder.SetInsertPoint(B);
@@ -597,12 +600,11 @@ void*
 m ()
 {
     /* Generate unique label names using a static counter */
-    static int i = 0;
-    std::string label = "L" + std::to_string(i++);
-    BasicBlock *BB = BasicBlock::Create(TheContext, label, TheFunction);
-    TheBlock = BB;
-    Builder.SetInsertPoint(BB);
-    return BB;
+    std::string label = "L" + std::to_string(label_index++);
+    BasicBlock *B = create_label_entry(label, 1);
+    TheBlock = B;
+    Builder.SetInsertPoint(B);
+    return B;
 }
 
 /*
