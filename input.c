@@ -9,8 +9,9 @@ main (int argc, int argv)
             if (y == 15)
                 break;
         }
-        if (y >= 25)
+        if (y >= 25) {
             break;
+        }
     }
     return x;
 }

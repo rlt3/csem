@@ -68,9 +68,9 @@ get_prev_block (BasicBlock *B)
     /*
      * Since we're being hacky just to produce a working program, this doesn't
      * use any sort of formal data structure. Labels are either "entry", some
-     * user created label, or a label generated in the form L%d. We extract the
-     * digit and subtract by one. Blocks given to this function should only
-     * be ones generated with the m() function.
+     * user created label, or a label generated in the form L%d with m(). We
+     * extract the digit and subtract by one. Blocks given to this function
+     * should only be ones generated with the m() function.
      */
     const char *data = B->getName().data();
     std::string label = "L";
@@ -114,6 +114,41 @@ create_label_entry (std::string id, int declared)
 
     local_labels[id].second = declared;
     return local_labels[id].first;
+}
+
+/*
+ * Create an allocated instance of a variable inside the 'entry' of a function.
+ */
+AllocaInst*
+create_func_alloca (Function *F, int type, int width, std::string var)
+{
+    Value *arr_size = NULL;
+    IRBuilder<> B(&F->getEntryBlock(), F->getEntryBlock().begin());
+
+    if (width > 1)
+        arr_size = ConstantInt::get(Type::getInt8Ty(TheContext), width);
+
+    switch (type) {
+        case 'f':
+            return B.CreateAlloca(Type::getDoubleTy(TheContext), arr_size, var);
+        case 'i':
+        default:
+            return B.CreateAlloca(Type::getInt8Ty(TheContext), arr_size, var);
+    }
+}
+
+/*
+ * Given two semantic records, cast the right LLVM Value to match the left.
+ */
+Value*
+cast_pair (struct sem_rec *left, struct sem_rec *right)
+{
+    Value *R = (Value*) right->anything;
+    if ((left->s_mode & T_DOUBLE) && !(right->s_mode & T_DOUBLE))
+        R = Builder.CreateSIToFP(R, Type::getDoubleTy(TheContext), "cast");
+    else if ((left->s_mode & T_INT) && !(right->s_mode & T_INT))
+        R = Builder.CreateFPToSI(R, Type::getInt8Ty(TheContext), "cast");
+    return R;
 }
 
 /*
@@ -180,10 +215,18 @@ call (const char *f, struct sem_rec *argsR)
 /*
  * ccand - logical and
  */
-struct sem_rec *ccand(struct sem_rec *e1, void* m, struct sem_rec *e2)
+struct sem_rec *
+ccand (struct sem_rec *e1, void* m, struct sem_rec *e2)
 {
-   fprintf(stderr, "sem: ccand not implemented\n");
-   return ((struct sem_rec *) NULL);
+    /*
+     * Create some sort of structure which gets its branches populated at
+     * a later point similar to break/continue. The structure needs to account
+     * for the branches created while parsing. The 'backpatched' branch will
+     * be the 'false' branch for AND and 'true' for OR.
+     */
+
+    fprintf(stderr, "sem: ccand not implemented\n");
+    return NULL;
 }
 
 /*
@@ -501,41 +544,6 @@ exprs (struct sem_rec *L, struct sem_rec *R)
 }
 
 /*
- * Create an allocated instance of a variable inside the 'entry' of a function.
- */
-AllocaInst*
-create_func_alloca (Function *F, int type, int width, std::string var)
-{
-    Value *arr_size = NULL;
-    IRBuilder<> B(&F->getEntryBlock(), F->getEntryBlock().begin());
-
-    if (width > 1)
-        arr_size = ConstantInt::get(Type::getInt8Ty(TheContext), width);
-
-    switch (type) {
-        case 'f':
-            return B.CreateAlloca(Type::getDoubleTy(TheContext), arr_size, var);
-        case 'i':
-        default:
-            return B.CreateAlloca(Type::getInt8Ty(TheContext), arr_size, var);
-    }
-}
-
-/*
- * Given two semantic records, cast the right LLVM Value to match the left.
- */
-Value*
-cast_pair (struct sem_rec *left, struct sem_rec *right)
-{
-    Value *R = (Value*) right->anything;
-    if ((left->s_mode & T_DOUBLE) && !(right->s_mode & T_DOUBLE))
-        R = Builder.CreateSIToFP(R, Type::getDoubleTy(TheContext), "cast");
-    else if ((left->s_mode & T_INT) && !(right->s_mode & T_INT))
-        R = Builder.CreateFPToSI(R, Type::getInt8Ty(TheContext), "cast");
-    return R;
-}
-
-/*
  * Take a constructed function id_entry and add it to the LLVM AST.
  */
 void
@@ -653,18 +661,18 @@ ftail()
      * instructions but not a terminating instruction (branch or ret) then 
      * create branch to the next instruction.
      */
-    //Function *F = TheFunction;
-    //for (auto it = F->begin(); it != F->end(); it++) {
-    //    if (it->size() == 0 || !it->back().isTerminator()) {
-    //        if (std::next(it) != F->end()) {
-    //            Builder.SetInsertPoint(&(*it));
-    //            Builder.CreateBr(&(*std::next(it)));
-    //        } else {
-    //            yyerror("cannot having implicit fallthrough on last block!");
-    //            exit(1);
-    //        }
-    //    }
-    //}
+    Function *F = TheFunction;
+    for (auto it = F->begin(); it != F->end(); it++) {
+        if (it->size() == 0 || !it->back().isTerminator()) {
+            if (std::next(it) != F->end()) {
+                Builder.SetInsertPoint(&(*it));
+                Builder.CreateBr(&(*std::next(it)));
+            } else {
+                yyerror("cannot having implicit fallthrough on last block!");
+                exit(1);
+            }
+        }
+    }
     Builder.SetInsertPoint(TheBlock);
     leaveblock();
 }
