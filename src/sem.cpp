@@ -811,6 +811,46 @@ op1 (const char *op, struct sem_rec *y)
     return y;
 }
 
+Value*
+llvm_op2 (const char *op, int type, Value *L, Value *R)
+{
+    switch (*op) {
+        case '+':
+            if (type == T_INT)
+                return Builder.CreateAdd(L, R, "addtmp");
+            else
+                return Builder.CreateFAdd(L, R, "addtmp");
+            break;
+        case '-':
+            if (type == T_INT)
+                return Builder.CreateSub(L, R, "subtmp");
+            else
+                return Builder.CreateFSub(L, R, "subtmp");
+            break;
+        case '*':
+            if (type == T_INT)
+                return Builder.CreateMul(L, R, "multmp");
+            else
+                return Builder.CreateFMul(L, R, "multmp");
+            break;
+        case '/':
+            if (type == T_INT)
+                return Builder.CreateSDiv(L, R, "divtmp");
+            else
+                return Builder.CreateFDiv(L, R, "divtmp");
+            break;
+        case '%':
+            if (type == T_INT)
+                return Builder.CreateSRem(L, R, "remtmp");
+            else
+                return Builder.CreateFRem(L, R, "remtmp");
+            break;
+        default:
+           fprintf(stderr, "sem: op2 %s not implemented\n", op);
+           return NULL;
+    }
+}
+
 /*
  * op2 - arithmetic operators
  */
@@ -822,27 +862,7 @@ op2 (const char *op, struct sem_rec *x, struct sem_rec *y)
     L = (Value*) x->anything;
     R = cast_pair(x, y);
 
-    switch (*op) {
-        case '+':
-            x->anything = (void*) Builder.CreateAdd(L, R, "addtmp");
-            break;
-        case '-':
-            x->anything = (void*) Builder.CreateSub(L, R, "subtmp");
-            break;
-        case '*':
-            x->anything = (void*) Builder.CreateMul(L, R, "multmp");
-            break;
-        case '/':
-            x->anything = (void*) Builder.CreateSDiv(L, R, "divtmp");
-            break;
-        case '%':
-            x->anything = (void*) Builder.CreateSRem(L, R, "remtmp");
-            break;
-        default:
-           fprintf(stderr, "sem: op2 %s not implemented\n", op);
-           return NULL;
-    }
-
+    x->anything = (void*) llvm_op2(op, x->id->i_type, L, R);
     return x;
 }
 
@@ -923,22 +943,23 @@ rel (const char *op, struct sem_rec *x, struct sem_rec *y)
 struct sem_rec *
 set (const char *op, struct sem_rec *x, struct sem_rec *y)
 {
-    Value *variable, *value;
+    Value *storage, *tmp, *value;
 
-    variable = (Value*) x->anything;
+    storage = (Value*) x->anything;
     value = cast_pair(x, y);
 
-    switch (*op) {
-        case '*':
-            variable = Builder.CreateMul(value, variable, "multmp");
-            break;
-
-        case '\0':
-        default:
-            break;
+    /*
+     * Use the op2 function to handle any op-assignment operations. The storage
+     * value itself is used as the left-hand operand. This means we must first
+     * dereference the lval to use it for some op. Then the return of that op
+     * is stored at the lval.
+     */
+    if (*op != '\0') {
+        tmp = Builder.CreateLoad(storage, std::string(x->id->i_name));
+        value = llvm_op2(op, x->id->i_type, tmp, value);
     }
 
-    Builder.CreateStore(value, variable);
+    Builder.CreateStore(value, storage);
     return x;
 }
 
