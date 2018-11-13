@@ -64,9 +64,10 @@ struct id_entry *dcl(struct id_entry *p, int type, int scope)
          exit(1);
       }
    }
-   else if (p->i_width > 0 && level == 2)
-      printf("alloc %s %d\n", p->i_name,
-             p->i_width * tsize(p->i_type&~T_ARRAY));
+   else if (p->i_width > 0 && level == 2) {
+       global_alloc(p, p->i_width * tsize(p->i_type&~T_ARRAY));
+   }
+
    return p;
 }
 

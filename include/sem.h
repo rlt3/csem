@@ -3,6 +3,7 @@
 
 void backpatch(struct sem_rec *, int);
 void bgnstmt();
+void global_alloc (struct id_entry*, int);
 struct sem_rec *call(const char *, struct sem_rec *);
 struct sem_rec *cast(struct sem_rec *, int);
 struct sem_rec *ccand(struct sem_rec *, void*, struct sem_rec *);

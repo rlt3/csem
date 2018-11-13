@@ -151,6 +151,13 @@ cast_pair (struct sem_rec *left, struct sem_rec *right)
     return R;
 }
 
+void
+global_alloc (struct id_entry *E, int width)
+{
+    Function *F = Builder.GetInsertBlock()->getParent();
+    E->anything = (void*) create_func_alloca(F, E->i_type, width, E->i_name);
+}
+
 /*
  * backpatch - backpatch list of quadruples starting at p with k
  */
@@ -225,8 +232,10 @@ ccand (struct sem_rec *e1, void* m, struct sem_rec *e2)
      * be the 'false' branch for AND and 'true' for OR.
      */
 
-    fprintf(stderr, "sem: ccand not implemented\n");
-    return NULL;
+    fprintf(stderr, "%p - %p\n", e1, e2);
+
+    //fprintf(stderr, "sem: ccand not implemented\n");
+    return e1;
 }
 
 /*
@@ -262,15 +271,22 @@ struct sem_rec *ccor(struct sem_rec *e1, void* m, struct sem_rec *e2)
 struct sem_rec*
 con (const char *x)
 {
+    struct sem_rec *R;
+    struct id_entry *E;
+    int v;
+
+    E = lookup(x, 0);
+    if (!E)
+        E = install(x, 0);
     /*
      * Use 'anything' part of record to hold our value. This is used int
      * doret to make a retval of the constant here.
      */
-    struct sem_rec *R = node(currtemp(), T_INT, NULL, NULL);
-    int v;
+    R = node(currtemp(), T_INT, NULL, NULL);
     sscanf(x, "%d", &v);
     R->anything = (void*) ConstantInt::get(Type::getInt8Ty(TheContext), v);
     R->s_mode |= T_INT;
+    R->id = E;
     return R;
 }
 
@@ -701,10 +717,19 @@ id (const char *x)
 /*
  * indx - subscript
  */
-struct sem_rec *indx(struct sem_rec *x, struct sem_rec *i)
+struct sem_rec *
+indx (struct sem_rec *x, struct sem_rec *i)
 {
-   //fprintf(stderr, "sem: indx not implemented\n");
-   return ((struct sem_rec *) NULL);
+    Value *arr, *idx;
+    struct sem_rec *R;
+
+    arr = (Value*) x->anything;
+    idx = (Value*) i->anything;
+
+    R = node(currtemp(), x->s_mode, NULL, NULL);
+    R->anything = (void*) Builder.CreateGEP(arr, idx, "indx");
+    R->id = x->id;
+    return R;
 }
 
 /*
@@ -790,7 +815,7 @@ op1 (const char *op, struct sem_rec *y)
  * op2 - arithmetic operators
  */
 struct sem_rec *
-op2(const char *op, struct sem_rec *x, struct sem_rec *y)
+op2 (const char *op, struct sem_rec *x, struct sem_rec *y)
 {
     Value *L, *R;
 
@@ -843,24 +868,46 @@ rel (const char *op, struct sem_rec *x, struct sem_rec *y)
 
     switch (*op) {
         case '=':
-            x->anything = (void*) Builder.CreateICmpEQ(L, R, "eqtmp");
+            if (x->s_mode == T_INT)
+                x->anything = (void*) Builder.CreateICmpEQ(L, R, "eqtmp");
+            else
+                x->anything = (void*) Builder.CreateFCmpOEQ(L, R, "eqtmp");
             break;
 
         case '!':
-            x->anything = (void*) Builder.CreateICmpNE(L, R, "netmp");
+            if (x->s_mode == T_INT)
+                x->anything = (void*) Builder.CreateICmpNE(L, R, "netmp");
+            else
+                x->anything = (void*) Builder.CreateFCmpONE(L, R, "netmp");
             break;
 
         case '>':
-            if (op[1] == '\0')
-                x->anything = (void*) Builder.CreateICmpSGT(L, R, "sgttmp");
-            else
-                x->anything = (void*) Builder.CreateICmpSGE(L, R, "sgetmp");
+            if (op[1] == '\0') {
+                if (x->s_mode == T_INT)
+                    x->anything = (void*) Builder.CreateICmpSGT(L, R, "sgttmp");
+                else
+                    x->anything = (void*) Builder.CreateFCmpOGT(L, R, "sgttmp");
+            }
+            else {
+                if (x->s_mode == T_INT)
+                    x->anything = (void*) Builder.CreateICmpSGE(L, R, "sgetmp");
+                else
+                    x->anything = (void*) Builder.CreateFCmpOGE(L, R, "sgetmp");
+            }
             break;
         case '<':
-            if (op[1] == '\0')
-                x->anything = (void*) Builder.CreateICmpSLT(L, R, "slttmp");
-            else
-                x->anything = (void*) Builder.CreateICmpSLE(L, R, "sletmp");
+            if (op[1] == '\0') {
+                if (x->s_mode == T_INT)
+                    x->anything = (void*) Builder.CreateICmpSLT(L, R, "slttmp");
+                else
+                    x->anything = (void*) Builder.CreateFCmpOLT(L, R, "slttmp");
+            }
+            else {
+                if (x->s_mode == T_INT)
+                    x->anything = (void*) Builder.CreateICmpSLE(L, R, "sletmp");
+                else
+                    x->anything = (void*) Builder.CreateFCmpOLE(L, R, "sletmp");
+            }
             break;
         default:
             fprintf(stderr, "sem: rel %s not implemented\n", op);
@@ -879,11 +926,19 @@ set (const char *op, struct sem_rec *x, struct sem_rec *y)
     Value *variable, *value;
 
     variable = (Value*) x->anything;
-    value = (Value*) y->anything;
-
     value = cast_pair(x, y);
-    Builder.CreateStore(value, variable);
 
+    switch (*op) {
+        case '*':
+            variable = Builder.CreateMul(value, variable, "multmp");
+            break;
+
+        case '\0':
+        default:
+            break;
+    }
+
+    Builder.CreateStore(value, variable);
     return x;
 }
 
