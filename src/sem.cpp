@@ -59,11 +59,41 @@ static std::vector<std::pair<BasicBlock*, BasicBlock::iterator>> cont_blocks;
 static std::vector<std::vector<std::pair<BasicBlock*, BasicBlock::iterator>>> loop_scopes;
 static int label_index = 0;
 
+/*
+ * Given a particular block, get the previous block.
+ */
 BasicBlock*
 get_prev_block (BasicBlock *B)
 {
-    auto it = local_labels.find(B->getName().str());
-    return std::prev(it)->second.first;
+    /*
+     * Since we're being hacky just to produce a working program, this doesn't
+     * use any sort of formal data structure. Labels are either "entry", some
+     * user created label, or a label generated in the form L%d. We extract the
+     * digit and subtract by one. Blocks given to this function should only
+     * be ones generated with the m() function.
+     */
+    const char *data = B->getName().data();
+    std::string label = "L";
+    auto it = local_labels.begin();
+    int num;
+
+    sscanf(data, "L%d\n", &num);
+
+    if (num == 0 || strcmp(data, "entry") == 0) {
+        goto error;
+    }
+
+    label += std::to_string(num - 1);
+    it = local_labels.find(label);
+
+    if (it == local_labels.end())
+        goto error;
+
+    return it->second.first;
+
+error:
+    fprintf(stderr, "cannot get prev of block `%s'\n", data);
+    exit(1);
 }
 
 /*
@@ -78,7 +108,6 @@ create_label_entry (std::string id, int declared)
         BasicBlock* B = BasicBlock::Create(TheContext, id, TheFunction);
         local_labels[id] = std::make_pair(B, declared);
     } else if (local_labels[id].second && declared) {
-        fprintf(stderr, "LABEL %s\n", id.c_str());
         yyerror("cannot declare label twice within scope");
         exit(1);
     }
@@ -92,7 +121,7 @@ create_label_entry (std::string id, int declared)
  */
 void backpatch(struct sem_rec *p, int k)
 {
-   fprintf(stderr, "sem: backpatch not implemented\n");
+   //fprintf(stderr, "sem: backpatch not implemented\n");
 }
 
 /*
@@ -235,7 +264,8 @@ void dodo(void* m1, void* m2, struct sem_rec *e, void* m3)
 /*
  * dofor - for statement
  */
-void dofor(void* mS, void* m1, struct sem_rec *R1, void* m2, struct sem_rec *R2,
+void
+dofor (void* mS, void* m1, struct sem_rec *R1, void* m2, struct sem_rec *R2,
            void* m3, struct sem_rec *R3, void* m4)
 {
     Value *cond;
@@ -248,7 +278,7 @@ void dofor(void* mS, void* m1, struct sem_rec *R1, void* m2, struct sem_rec *R2,
     codeB  = (BasicBlock*) m3;
     exitB = (BasicBlock*) m4;
 
-    fprintf(stderr, "startB: `%s', condB: `%s', incB: `%s', code: `%s', exitB: `%s'\n",
+    fprintf(stderr, "FOR: startB: `%s', condB: `%s', incB: `%s', code: `%s', exitB: `%s'\n",
             startB->getName().data(), condB->getName().data(),
             incB->getName().data(), codeB->getName().data(),
             exitB->getName().data());
@@ -260,6 +290,7 @@ void dofor(void* mS, void* m1, struct sem_rec *R1, void* m2, struct sem_rec *R2,
     Builder.CreateCondBr(cond, codeB, exitB);
 
     codeB = get_prev_block(exitB);
+    fprintf(stderr, "PREV: %s\n", codeB->getName().data());
     Builder.SetInsertPoint(codeB);
     Builder.CreateBr(incB);
 
@@ -270,6 +301,8 @@ void dofor(void* mS, void* m1, struct sem_rec *R1, void* m2, struct sem_rec *R2,
         BasicBlock *B  = pair.first;
         BasicBlock::iterator it = pair.second;
         Instruction *br = BranchInst::Create(exitB);
+        br->print(errs());
+        fprintf(stderr, "\n");
         B->getInstList().insertAfter(it, br);
     }
     for (auto &pair : cont_blocks) {
@@ -309,13 +342,14 @@ doif (void* mS, struct sem_rec *R, void* m1, void* m2)
     thenB = (BasicBlock*) m1;
     mergeB = (BasicBlock*) m2;
 
-    fprintf(stderr, "startB: `%s', thenB: `%s', mergeB: `%s'\n",
+    fprintf(stderr, "IF: startB: `%s', thenB: `%s', mergeB: `%s'\n",
             startB->getName().data(), thenB->getName().data(), mergeB->getName().data());
 
     Builder.SetInsertPoint(startB);
     Builder.CreateCondBr(cond, thenB, mergeB);
 
     thenB = get_prev_block(mergeB);
+    fprintf(stderr, "PREV: %s\n", thenB->getName().data());
     Builder.SetInsertPoint(thenB);
     Builder.CreateBr(mergeB);
 
@@ -395,9 +429,9 @@ dowhile (void* mS, void* m1,
     codeB  = (BasicBlock*) m2;
     exitB = (BasicBlock*) m3;
 
-    fprintf(stderr, "startB: `%s', loopB: `%s', codeB: `%s', exitB: `%s'\n",
-            startB->getName().data(), loopB->getName().data(), codeB->getName().data(),
-            exitB->getName().data());
+    //fprintf(stderr, "startB: `%s', loopB: `%s', codeB: `%s', exitB: `%s'\n",
+    //        startB->getName().data(), loopB->getName().data(), codeB->getName().data(),
+    //        exitB->getName().data());
 
     /* the loop has the conditional jump */
     Builder.SetInsertPoint(loopB);
@@ -619,18 +653,18 @@ ftail()
      * instructions but not a terminating instruction (branch or ret) then 
      * create branch to the next instruction.
      */
-    Function *F = TheFunction;
-    for (auto it = F->begin(); it != F->end(); it++) {
-        if (it->size() == 0 || !it->back().isTerminator()) {
-            if (std::next(it) != F->end()) {
-                Builder.SetInsertPoint(&(*it));
-                Builder.CreateBr(&(*std::next(it)));
-            } else {
-                yyerror("cannot having implicit fallthrough on last block!");
-                exit(1);
-            }
-        }
-    }
+    //Function *F = TheFunction;
+    //for (auto it = F->begin(); it != F->end(); it++) {
+    //    if (it->size() == 0 || !it->back().isTerminator()) {
+    //        if (std::next(it) != F->end()) {
+    //            Builder.SetInsertPoint(&(*it));
+    //            Builder.CreateBr(&(*std::next(it)));
+    //        } else {
+    //            yyerror("cannot having implicit fallthrough on last block!");
+    //            exit(1);
+    //        }
+    //    }
+    //}
     Builder.SetInsertPoint(TheBlock);
     leaveblock();
 }
@@ -661,7 +695,7 @@ id (const char *x)
  */
 struct sem_rec *indx(struct sem_rec *x, struct sem_rec *i)
 {
-   fprintf(stderr, "sem: indx not implemented\n");
+   //fprintf(stderr, "sem: indx not implemented\n");
    return ((struct sem_rec *) NULL);
 }
 
@@ -698,7 +732,7 @@ m ()
 {
     /* Generate unique label names using a static counter */
     std::string label = "L" + std::to_string(label_index++);
-    fprintf(stderr, "m: %s\n", label.c_str());
+    //fprintf(stderr, "m: %s\n", label.c_str());
     BasicBlock *B = create_label_entry(label, 1);
     TheBlock = B;
     Builder.SetInsertPoint(B);
@@ -710,7 +744,7 @@ m ()
  */
 struct sem_rec *n()
 {
-   fprintf(stderr, "sem: n not implemented\n");
+   //fprintf(stderr, "sem: n not implemented\n");
    return ((struct sem_rec *) NULL);
 }
 
