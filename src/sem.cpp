@@ -59,6 +59,37 @@ static std::vector<std::pair<BasicBlock*, BasicBlock::iterator>> cont_blocks;
 static std::vector<std::vector<std::pair<BasicBlock*, BasicBlock::iterator>>> loop_scopes;
 static int label_index = 0;
 
+/* Short Circuit Branch Structure */
+struct SCBranch {
+    /* OR / AND */
+    int type;
+    /* the block we're inserting the branch instructions into */
+    BasicBlock *insert;
+    /* Where we're inserting the instructions */
+    BasicBlock::iterator pos;
+    /*
+     * The next block you jump to. Depending on which type of branch, the true
+     * branch could be `next' or the false could be `next'.
+     */
+    BasicBlock *next;
+    Value *cond;
+
+    bool is_or  () { return type == 1; }
+    bool is_and () { return type == 0; }
+
+    Instruction *
+    createBr (BasicBlock *shortcircuit)
+    {
+        if (is_or()) {
+            return BranchInst::Create(shortcircuit, next, cond);
+        } else {
+            return BranchInst::Create(next, shortcircuit, cond);
+        }
+    }
+};
+
+static std::vector<SCBranch> short_blocks;
+
 /*
  * Given a particular block, get the previous block.
  */
@@ -225,16 +256,7 @@ call (const char *f, struct sem_rec *argsR)
 struct sem_rec *
 ccand (struct sem_rec *e1, void* m, struct sem_rec *e2)
 {
-    /*
-     * Create some sort of structure which gets its branches populated at
-     * a later point similar to break/continue. The structure needs to account
-     * for the branches created while parsing. The 'backpatched' branch will
-     * be the 'false' branch for AND and 'true' for OR.
-     */
-
     fprintf(stderr, "%p - %p\n", e1, e2);
-
-    //fprintf(stderr, "sem: ccand not implemented\n");
     return e1;
 }
 
@@ -259,10 +281,27 @@ struct sem_rec *ccnot(struct sem_rec *e)
 /*
  * ccor - logical or
  */
-struct sem_rec *ccor(struct sem_rec *e1, void* m, struct sem_rec *e2)
+struct sem_rec *
+ccor (struct sem_rec *e1, void* m, struct sem_rec *e2)
 {
-   fprintf(stderr, "sem: ccor not implemented\n");
-   return ((struct sem_rec *) NULL);
+    fprintf(stderr, "OR: %p - %p\n", e1, e2);
+    /*
+     * Use the short_blocks vector as memory. We first insert an SCBranch into
+     * the vector. Then we construct a linked-list of all those SCBranches.
+     * This allows the memory to stay contiguous but the linked list to
+     * interweave.
+     */
+    SCBranch B;
+    B.type = 1;
+    B.insert = TheBlock;
+    B.pos = std::prev(TheBlock->end());
+    B.next = (BasicBlock*) m;
+    B.cond = (Value*) e1->anything;
+
+    short_blocks.push_back(B);
+    e1->s_mode |= T_ARRAY;
+    e1->anything = (void*) &short_blocks.back();
+    return e1;
 }
 
 /*
@@ -395,17 +434,29 @@ doif (void* mS, struct sem_rec *R, void* m1, void* m2)
 {
     Value *cond;
     BasicBlock *startB, *thenB, *mergeB;
+    struct sem_rec *next;
+    SCBranch *SC;
 
     cond = (Value*) R->anything;
     startB = (BasicBlock*) mS;
     thenB = (BasicBlock*) m1;
     mergeB = (BasicBlock*) m2;
 
-    fprintf(stderr, "IF: startB: `%s', thenB: `%s', mergeB: `%s'\n",
-            startB->getName().data(), thenB->getName().data(), mergeB->getName().data());
-
-    Builder.SetInsertPoint(startB);
-    Builder.CreateCondBr(cond, thenB, mergeB);
+    /* If there are multiple insertion points for short-circuiting */
+    if (R->s_mode & T_ARRAY) {
+        fprintf(stderr, "IF: startB: `%s', thenB: `%s', mergeB: `%s'\n",
+                startB->getName().data(), thenB->getName().data(), mergeB->getName().data());
+        for (next = R; next; next = next->back.s_link) {
+            SC = (SCBranch*) next->anything;
+            if (SC->is_or())
+                SC->insert->getInstList().insertAfter(SC->pos, SC->createBr(thenB));
+            else
+                SC->insert->getInstList().insertAfter(SC->pos, SC->createBr(mergeB));
+        }
+    } else {
+        Builder.SetInsertPoint(startB);
+        Builder.CreateCondBr(cond, thenB, mergeB);
+    }
 
     thenB = get_prev_block(mergeB);
     fprintf(stderr, "PREV: %s\n", thenB->getName().data());
