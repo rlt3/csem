@@ -278,30 +278,40 @@ struct sem_rec *ccnot(struct sem_rec *e)
    return ((struct sem_rec *) NULL);
 }
 
+SCBranch *
+add_short_branch (int type, void *label, struct sem_rec *R)
+{
+    SCBranch B;
+    B.type = type;
+    B.insert = TheBlock;
+    B.pos = std::prev(TheBlock->end());
+    B.next = (BasicBlock*) label;
+    B.cond = (Value*) R->anything;
+    short_blocks.push_back(B);
+    return &short_blocks.back();
+}
+
 /*
  * ccor - logical or
  */
 struct sem_rec *
-ccor (struct sem_rec *e1, void* m, struct sem_rec *e2)
+ccor (struct sem_rec *L, void* m, struct sem_rec *R)
 {
-    fprintf(stderr, "OR: %p - %p\n", e1, e2);
     /*
      * Use the short_blocks vector as memory. We first insert an SCBranch into
      * the vector. Then we construct a linked-list of all those SCBranches.
      * This allows the memory to stay contiguous but the linked list to
      * interweave.
      */
-    SCBranch B;
-    B.type = 1;
-    B.insert = TheBlock;
-    B.pos = std::prev(TheBlock->end());
-    B.next = (BasicBlock*) m;
-    B.cond = (Value*) e1->anything;
-
-    short_blocks.push_back(B);
-    e1->s_mode |= T_ARRAY;
-    e1->anything = (void*) &short_blocks.back();
-    return e1;
+    if (!(L->s_mode & T_ARRAY)) {
+        L->s_mode |= T_ARRAY;
+        L->anything = (void*) add_short_branch(1, m, L);
+    }
+    /*
+     * Problem is that L precedes R but we don't know where R will jump to.
+     * So we must allow R's next to be NULL and we can patch it later.
+     */
+    return L;
 }
 
 /*
