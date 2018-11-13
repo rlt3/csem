@@ -1,7 +1,6 @@
 #ifndef SEM_H
 #define SEM_H
 
-void backpatch(struct sem_rec *, int);
 void bgnstmt();
 void global_alloc (struct id_entry*, int);
 struct sem_rec *call(const char *, struct sem_rec *);

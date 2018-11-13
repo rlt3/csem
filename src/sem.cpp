@@ -28,6 +28,7 @@ extern "C" {
 #include <memory>
 #include <string>
 #include <vector>
+#include <list>
 #include <utility>
 
 /*
@@ -74,12 +75,30 @@ struct SCBranch {
     BasicBlock *next;
     Value *cond;
 
-    bool is_or  () { return type == 1; }
-    bool is_and () { return type == 0; }
+    SCBranch (int type, BasicBlock *insert, Value *cond)
+        : type(type)
+        , insert(insert)
+        , pos(std::prev(insert->end()))
+        , next(NULL)
+        , cond(cond)
+    { }
+
+    bool is_or  () { return this->type == 1; }
+    bool is_and () { return this->type == 0; }
+
+    void
+    backpatch (BasicBlock *patch)
+    {
+        next = patch;
+    }
 
     Instruction *
     createBr (BasicBlock *shortcircuit)
     {
+        if (!next) {
+            yyerror("unbackpatch'd branch!");
+            exit(1);
+        }
         if (is_or()) {
             return BranchInst::Create(shortcircuit, next, cond);
         } else {
@@ -88,7 +107,7 @@ struct SCBranch {
     }
 };
 
-static std::vector<SCBranch> short_blocks;
+static std::list<SCBranch> short_blocks;
 
 /*
  * Given a particular block, get the previous block.
@@ -110,8 +129,8 @@ get_prev_block (BasicBlock *B)
 
     sscanf(data, "L%d\n", &num);
 
-    if (num == 0 || strcmp(data, "entry") == 0) {
-        goto error;
+    if (num == 0) {
+        return &TheFunction->getEntryBlock();
     }
 
     label += std::to_string(num - 1);
@@ -192,9 +211,12 @@ global_alloc (struct id_entry *E, int width)
 /*
  * backpatch - backpatch list of quadruples starting at p with k
  */
-void backpatch(struct sem_rec *p, int k)
+void
+backpatch (struct sem_rec *L, BasicBlock *label)
 {
-   //fprintf(stderr, "sem: backpatch not implemented\n");
+    /* s_false is back of the list */
+    SCBranch *SC = (SCBranch*) L->s_false->anything;
+    SC->backpatch(label);
 }
 
 /*
@@ -250,14 +272,44 @@ call (const char *f, struct sem_rec *argsR)
     return R;
 }
 
+SCBranch *
+add_short_branch (int type, BasicBlock *insert, struct sem_rec *R)
+{
+    short_blocks.push_back(SCBranch(type, insert, (Value*) R->anything));
+    return &(*std::prev(short_blocks.end()));
+}
+
 /*
  * ccand - logical and
  */
 struct sem_rec *
-ccand (struct sem_rec *e1, void* m, struct sem_rec *e2)
+ccand (struct sem_rec *L, void* m, struct sem_rec *R)
 {
-    fprintf(stderr, "%p - %p\n", e1, e2);
-    return e1;
+    BasicBlock *curr, *prev;
+
+    curr = (BasicBlock*) m;
+    prev = get_prev_block(curr);
+
+    /* First create the list if the list hasn't been setup */
+    if (!(L->s_mode & T_ARRAY)) {
+        L->s_mode |= T_ARRAY;
+        L->anything = (void*) add_short_branch(0, prev, L);
+        L->back.s_link = NULL;
+        /* s_false is used to get the 'back' of the linked-list */
+        L->s_false = L;
+    }
+
+    /* backpatch the label for the back-element on the list */
+    backpatch(L, curr);
+
+    /* setup a new back */
+    R->s_mode |= T_ARRAY;
+    R->anything = (void*) add_short_branch(0, curr, R);
+    R->back.s_link = NULL;
+    L->s_false->back.s_link = R;
+    L->s_false = R;
+
+    return L;
 }
 
 /*
@@ -278,39 +330,36 @@ struct sem_rec *ccnot(struct sem_rec *e)
    return ((struct sem_rec *) NULL);
 }
 
-SCBranch *
-add_short_branch (int type, void *label, struct sem_rec *R)
-{
-    SCBranch B;
-    B.type = type;
-    B.insert = TheBlock;
-    B.pos = std::prev(TheBlock->end());
-    B.next = (BasicBlock*) label;
-    B.cond = (Value*) R->anything;
-    short_blocks.push_back(B);
-    return &short_blocks.back();
-}
-
 /*
  * ccor - logical or
  */
 struct sem_rec *
 ccor (struct sem_rec *L, void* m, struct sem_rec *R)
 {
-    /*
-     * Use the short_blocks vector as memory. We first insert an SCBranch into
-     * the vector. Then we construct a linked-list of all those SCBranches.
-     * This allows the memory to stay contiguous but the linked list to
-     * interweave.
-     */
+    BasicBlock *curr, *prev;
+
+    curr = (BasicBlock*) m;
+    prev = get_prev_block(curr);
+
+    /* First create the list if the list hasn't been setup */
     if (!(L->s_mode & T_ARRAY)) {
         L->s_mode |= T_ARRAY;
-        L->anything = (void*) add_short_branch(1, m, L);
+        L->anything = (void*) add_short_branch(1, prev, L);
+        L->back.s_link = NULL;
+        /* s_false is used to get the 'back' of the linked-list */
+        L->s_false = L;
     }
-    /*
-     * Problem is that L precedes R but we don't know where R will jump to.
-     * So we must allow R's next to be NULL and we can patch it later.
-     */
+
+    /* backpatch the label for the back-element on the list */
+    backpatch(L, curr);
+
+    /* setup a new back */
+    R->s_mode |= T_ARRAY;
+    R->anything = (void*) add_short_branch(1, curr, R);
+    R->back.s_link = NULL;
+    L->s_false->back.s_link = R;
+    L->s_false = R;
+
     return L;
 }
 
@@ -386,11 +435,6 @@ dofor (void* mS, void* m1, struct sem_rec *R1, void* m2, struct sem_rec *R2,
     codeB  = (BasicBlock*) m3;
     exitB = (BasicBlock*) m4;
 
-    fprintf(stderr, "FOR: startB: `%s', condB: `%s', incB: `%s', code: `%s', exitB: `%s'\n",
-            startB->getName().data(), condB->getName().data(),
-            incB->getName().data(), codeB->getName().data(),
-            exitB->getName().data());
-
     Builder.SetInsertPoint(startB);
     Builder.CreateBr(condB);
 
@@ -398,7 +442,6 @@ dofor (void* mS, void* m1, struct sem_rec *R1, void* m2, struct sem_rec *R2,
     Builder.CreateCondBr(cond, codeB, exitB);
 
     codeB = get_prev_block(exitB);
-    fprintf(stderr, "PREV: %s\n", codeB->getName().data());
     Builder.SetInsertPoint(codeB);
     Builder.CreateBr(incB);
 
@@ -409,8 +452,6 @@ dofor (void* mS, void* m1, struct sem_rec *R1, void* m2, struct sem_rec *R2,
         BasicBlock *B  = pair.first;
         BasicBlock::iterator it = pair.second;
         Instruction *br = BranchInst::Create(exitB);
-        br->print(errs());
-        fprintf(stderr, "\n");
         B->getInstList().insertAfter(it, br);
     }
     for (auto &pair : cont_blocks) {
@@ -456,6 +497,7 @@ doif (void* mS, struct sem_rec *R, void* m1, void* m2)
     if (R->s_mode & T_ARRAY) {
         fprintf(stderr, "IF: startB: `%s', thenB: `%s', mergeB: `%s'\n",
                 startB->getName().data(), thenB->getName().data(), mergeB->getName().data());
+        backpatch(R, thenB);
         for (next = R; next; next = next->back.s_link) {
             SC = (SCBranch*) next->anything;
             if (SC->is_or())
@@ -469,7 +511,6 @@ doif (void* mS, struct sem_rec *R, void* m1, void* m2)
     }
 
     thenB = get_prev_block(mergeB);
-    fprintf(stderr, "PREV: %s\n", thenB->getName().data());
     Builder.SetInsertPoint(thenB);
     Builder.CreateBr(mergeB);
 
@@ -548,10 +589,6 @@ dowhile (void* mS, void* m1,
     loopB = (BasicBlock*) m1;
     codeB  = (BasicBlock*) m2;
     exitB = (BasicBlock*) m3;
-
-    //fprintf(stderr, "startB: `%s', loopB: `%s', codeB: `%s', exitB: `%s'\n",
-    //        startB->getName().data(), loopB->getName().data(), codeB->getName().data(),
-    //        exitB->getName().data());
 
     /* the loop has the conditional jump */
     Builder.SetInsertPoint(loopB);
@@ -826,7 +863,6 @@ m ()
 {
     /* Generate unique label names using a static counter */
     std::string label = "L" + std::to_string(label_index++);
-    //fprintf(stderr, "m: %s\n", label.c_str());
     BasicBlock *B = create_label_entry(label, 1);
     TheBlock = B;
     Builder.SetInsertPoint(B);
@@ -838,7 +874,6 @@ m ()
  */
 struct sem_rec *n()
 {
-   //fprintf(stderr, "sem: n not implemented\n");
    return ((struct sem_rec *) NULL);
 }
 
