@@ -279,11 +279,8 @@ add_short_branch (int type, BasicBlock *insert, struct sem_rec *R)
     return &(*std::prev(short_blocks.end()));
 }
 
-/*
- * ccand - logical and
- */
 struct sem_rec *
-ccand (struct sem_rec *L, void* m, struct sem_rec *R)
+short_branch_list (int type, struct sem_rec *L, void* m, struct sem_rec *R)
 {
     BasicBlock *curr, *prev;
 
@@ -293,7 +290,7 @@ ccand (struct sem_rec *L, void* m, struct sem_rec *R)
     /* First create the list if the list hasn't been setup */
     if (!(L->s_mode & T_ARRAY)) {
         L->s_mode |= T_ARRAY;
-        L->anything = (void*) add_short_branch(0, prev, L);
+        L->anything = (void*) add_short_branch(type, prev, L);
         L->back.s_link = NULL;
         /* s_false is used to get the 'back' of the linked-list */
         L->s_false = L;
@@ -304,12 +301,21 @@ ccand (struct sem_rec *L, void* m, struct sem_rec *R)
 
     /* setup a new back */
     R->s_mode |= T_ARRAY;
-    R->anything = (void*) add_short_branch(0, curr, R);
+    R->anything = (void*) add_short_branch(type, curr, R);
     R->back.s_link = NULL;
     L->s_false->back.s_link = R;
     L->s_false = R;
 
     return L;
+}
+
+/*
+ * ccand - logical and
+ */
+struct sem_rec *
+ccand (struct sem_rec *L, void* m, struct sem_rec *R)
+{
+    return short_branch_list(0, L, m, R);
 }
 
 /*
@@ -336,31 +342,7 @@ struct sem_rec *ccnot(struct sem_rec *e)
 struct sem_rec *
 ccor (struct sem_rec *L, void* m, struct sem_rec *R)
 {
-    BasicBlock *curr, *prev;
-
-    curr = (BasicBlock*) m;
-    prev = get_prev_block(curr);
-
-    /* First create the list if the list hasn't been setup */
-    if (!(L->s_mode & T_ARRAY)) {
-        L->s_mode |= T_ARRAY;
-        L->anything = (void*) add_short_branch(1, prev, L);
-        L->back.s_link = NULL;
-        /* s_false is used to get the 'back' of the linked-list */
-        L->s_false = L;
-    }
-
-    /* backpatch the label for the back-element on the list */
-    backpatch(L, curr);
-
-    /* setup a new back */
-    R->s_mode |= T_ARRAY;
-    R->anything = (void*) add_short_branch(1, curr, R);
-    R->back.s_link = NULL;
-    L->s_false->back.s_link = R;
-    L->s_false = R;
-
-    return L;
+    return short_branch_list(1, L, m, R);
 }
 
 /*
@@ -497,7 +479,13 @@ doif (void* mS, struct sem_rec *R, void* m1, void* m2)
     if (R->s_mode & T_ARRAY) {
         fprintf(stderr, "IF: startB: `%s', thenB: `%s', mergeB: `%s'\n",
                 startB->getName().data(), thenB->getName().data(), mergeB->getName().data());
-        backpatch(R, thenB);
+
+        SC = (SCBranch*) R->s_false->anything;
+        if (SC->is_or())
+            backpatch(R, mergeB);
+        else
+            backpatch(R, thenB);
+
         for (next = R; next; next = next->back.s_link) {
             SC = (SCBranch*) next->anything;
             if (SC->is_or())
