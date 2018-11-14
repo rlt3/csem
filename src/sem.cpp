@@ -62,52 +62,104 @@ static int label_index = 0;
 
 /* Short Circuit Branch Structure */
 struct SCBranch {
-    /* OR / AND */
-    int type;
     /* the block we're inserting the branch instructions into */
     BasicBlock *insert;
     /* Where we're inserting the instructions */
     BasicBlock::iterator pos;
-    /*
-     * The next block you jump to. Depending on which type of branch, the true
-     * branch could be `next' or the false could be `next'.
-     */
-    BasicBlock *next;
+    BasicBlock **trueB;
+    BasicBlock **falseB;
     Value *cond;
 
-    SCBranch (int type, BasicBlock *insert, Value *cond)
-        : type(type)
-        , insert(insert)
+    SCBranch (BasicBlock *insert, Value *cond, BasicBlock **t, BasicBlock **f)
+        : insert(insert)
         , pos(std::prev(insert->end()))
-        , next(NULL)
+        , trueB(t)
+        , falseB(f)
         , cond(cond)
     { }
 
-    bool is_or  () { return this->type == 1; }
-    bool is_and () { return this->type == 0; }
-
+    /*
+     * Update a specific branch's location with the patch location. This is an
+     * equivalent of merging patch lists.
+     */
     void
-    backpatch (BasicBlock *patch)
+    merge_backpatch (bool branch, BasicBlock **patch)
     {
-        next = patch;
+        if (branch)
+            trueB = patch;
+        else
+            falseB = patch;
+    }
+
+    /*
+     * Actually update a branch with a real label value.
+     */
+    void
+    update_backpatch (bool branch, BasicBlock *label)
+    {
+        if (branch)
+            *trueB = label;
+        else
+            *falseB = label;
     }
 
     Instruction *
-    createBr (BasicBlock *shortcircuit)
+    createBr ()
     {
-        if (!next) {
-            yyerror("unbackpatch'd branch!");
-            exit(1);
-        }
-        if (is_or()) {
-            return BranchInst::Create(shortcircuit, next, cond);
-        } else {
-            return BranchInst::Create(next, shortcircuit, cond);
-        }
+        return BranchInst::Create(*trueB, *falseB, cond);
     }
 };
 
-static std::list<SCBranch> short_blocks;
+static std::list<SCBranch> backpatch_br;
+static std::list<BasicBlock*> backpatch_loc;
+
+/*
+ * Create a location that all SCBranch objects will hold.
+ */
+BasicBlock**
+create_backpatch_loc (BasicBlock *label)
+{
+    backpatch_loc.push_back(label);
+    return &backpatch_loc.back();
+}
+
+/*
+ * Create an SCBranch object holding a NULL pointer for the labels for its
+ * branch instruction.
+ */
+SCBranch *
+create_backpatch_branch (BasicBlock *insert, struct sem_rec *R)
+{
+    BasicBlock **t = create_backpatch_loc(NULL);
+    BasicBlock **f = create_backpatch_loc(NULL);
+    SCBranch b(insert, (Value*) R->anything, t, f);
+    backpatch_br.push_back(b);
+    return &backpatch_br.back();
+}
+
+/*
+ * Create a record of the latest backpatch locations. These records will
+ * usually be used to update existing backpatch branches and then merged.
+ */
+struct sem_rec *
+create_backpatch_records (BasicBlock **trueB, BasicBlock **falseB)
+{
+    return node(0, T_LBL, (struct sem_rec*) trueB, (struct sem_rec*) falseB);
+}
+
+/*
+ * Get a branch's backpatch location from a record.
+ */
+BasicBlock **
+get_backpatch_loc (bool branch, struct sem_rec *R)
+{
+    BasicBlock **loc;
+    if (branch)
+        loc = (BasicBlock**) R->back.s_link;
+    else
+        loc = (BasicBlock**) R->s_false;
+    return loc;
+}
 
 /*
  * Given a particular block, get the previous block.
@@ -209,17 +261,6 @@ global_alloc (struct id_entry *E, int width)
 }
 
 /*
- * backpatch - backpatch list of quadruples starting at p with k
- */
-void
-backpatch (struct sem_rec *L, BasicBlock *label)
-{
-    /* s_false is back of the list */
-    SCBranch *SC = (SCBranch*) L->s_false->anything;
-    SC->backpatch(label);
-}
-
-/*
  * bgnstmt - encountered the beginning of a statement
  */
 void
@@ -272,40 +313,9 @@ call (const char *f, struct sem_rec *argsR)
     return R;
 }
 
-SCBranch *
-add_short_branch (int type, BasicBlock *insert, struct sem_rec *R)
-{
-    short_blocks.push_back(SCBranch(type, insert, (Value*) R->anything));
-    return &(*std::prev(short_blocks.end()));
-}
-
 struct sem_rec *
 short_branch_list (int type, struct sem_rec *L, void* m, struct sem_rec *R)
 {
-    BasicBlock *curr, *prev;
-
-    curr = (BasicBlock*) m;
-    prev = get_prev_block(curr);
-
-    /* First create the list if the list hasn't been setup */
-    if (!(L->s_mode & T_ARRAY)) {
-        L->s_mode |= T_ARRAY;
-        L->anything = (void*) add_short_branch(type, prev, L);
-        L->back.s_link = NULL;
-        /* s_false is used to get the 'back' of the linked-list */
-        L->s_false = L;
-    }
-
-    /* backpatch the label for the back-element on the list */
-    backpatch(L, curr);
-
-    /* setup a new back */
-    R->s_mode |= T_ARRAY;
-    R->anything = (void*) add_short_branch(type, curr, R);
-    R->back.s_link = NULL;
-    L->s_false->back.s_link = R;
-    L->s_false = R;
-
     return L;
 }
 
@@ -323,8 +333,8 @@ ccand (struct sem_rec *L, void* m, struct sem_rec *R)
  */
 struct sem_rec *ccexpr(struct sem_rec *e)
 {
-   fprintf(stderr, "sem: ccexpr not implemented\n");
-   return ((struct sem_rec *) NULL);
+    fprintf(stderr, "ccexpr: e %p %d\n", (void*) e, e->s_mode);
+    return e;
 }
 
 /*
@@ -479,20 +489,6 @@ doif (void* mS, struct sem_rec *R, void* m1, void* m2)
     if (R->s_mode & T_ARRAY) {
         fprintf(stderr, "IF: startB: `%s', thenB: `%s', mergeB: `%s'\n",
                 startB->getName().data(), thenB->getName().data(), mergeB->getName().data());
-
-        SC = (SCBranch*) R->s_false->anything;
-        if (SC->is_or())
-            backpatch(R, mergeB);
-        else
-            backpatch(R, thenB);
-
-        for (next = R; next; next = next->back.s_link) {
-            SC = (SCBranch*) next->anything;
-            if (SC->is_or())
-                SC->insert->getInstList().insertAfter(SC->pos, SC->createBr(thenB));
-            else
-                SC->insert->getInstList().insertAfter(SC->pos, SC->createBr(mergeB));
-        }
     } else {
         Builder.SetInsertPoint(startB);
         Builder.CreateCondBr(cond, thenB, mergeB);
@@ -862,7 +858,7 @@ m ()
  */
 struct sem_rec *n()
 {
-   return ((struct sem_rec *) NULL);
+    return NULL;
 }
 
 /*
