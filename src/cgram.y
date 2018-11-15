@@ -145,8 +145,8 @@ stmt    : expr ';'
                 { doifelse($1, $4, $6, $9, $10, $12); }
         | mS WHILE '(' m cexpr ')' m s lblstmt n m
                 { dowhile($1, $4, $5, $7, $10, $11); }
-        | DO m s lblstmt WHILE '(' m cexpr ')' ';' m
-                { dodo($2, $7, $8, $11); }
+        | mS DO m s lblstmt WHILE '(' m cexpr ')' ';' m
+                { dodo($1, $3, $8, $9, $12); }
         | mS FOR '(' expro ';' m cexpro ';' m expro n ')' m s lblstmt n m
                 { dofor($1, $6, $7, $9, $11, $13, $16, $17); }
 	| CONTINUE ';'

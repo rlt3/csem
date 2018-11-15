@@ -58,6 +58,7 @@ static std::map<std::string, std::pair<BasicBlock*, int>> local_labels;
 static std::vector<std::pair<BasicBlock*, BasicBlock::iterator>> break_blocks;
 static std::vector<std::pair<BasicBlock*, BasicBlock::iterator>> cont_blocks;
 static std::vector<std::vector<std::pair<BasicBlock*, BasicBlock::iterator>>> loop_scopes;
+static std::map<std::string, struct id_entry*> global_entries;
 static int label_index = 0;
 
 /* Short Circuit Branch Structure */
@@ -132,6 +133,18 @@ insert_backpatch_conds (SCBranch *SC, BasicBlock *trueB, BasicBlock *falseB)
         Instruction *br = Cond.createBr();
         Cond.insert->getInstList().insertAfter(Cond.pos, br);
     }
+}
+
+void
+insert_loop_gotos (BasicBlock *contB, BasicBlock *exitB)
+{
+    Instruction *contBr = BranchInst::Create(contB);
+    Instruction *breakBr = BranchInst::Create(exitB);
+
+    for (auto &pair : break_blocks)
+        pair.first->getInstList().insertAfter(pair.second, breakBr);
+    for (auto &pair : cont_blocks)
+        pair.first->getInstList().insertAfter(pair.second, contBr);
 }
 
 /*
@@ -302,8 +315,12 @@ call (const char *f, struct sem_rec *argsR)
 
     E = lookup(f, 0);
     if (!E) {
-        fprintf(stderr, "cannot find function in namespace");
-        exit(1);
+        std::string fname(f);
+        if (global_entries.find(fname) == global_entries.end()) {
+            fprintf(stderr, "cannot find function %s in namespace\n", f);
+            exit(1);
+        }
+        E = global_entries[std::string(fname)];
     }
 
     /* get the necessary values for the CreateCall function */
@@ -326,12 +343,6 @@ call (const char *f, struct sem_rec *argsR)
     R->anything = (void*) callInst;
 
     return R;
-}
-
-struct sem_rec *
-short_branch_list (int type, struct sem_rec *L, void* m, struct sem_rec *R)
-{
-    return L;
 }
 
 struct sem_rec *
@@ -453,9 +464,38 @@ void docontinue()
 /*
  * dodo - do statement
  */
-void dodo(void* m1, void* m2, struct sem_rec *e, void* m3)
+void
+dodo (void *mS, void* m1, void* m2, struct sem_rec *R, void* m3)
 {
-   fprintf(stderr, "sem: dodo not implemented\n");
+    Value *cond;
+    BasicBlock *startB, *loopB, *codeB, *exitB;
+
+    cond = (Value*) R->anything;
+    startB = (BasicBlock*) mS;
+    codeB  = (BasicBlock*) m1;
+    loopB = (BasicBlock*) m2;
+    exitB = (BasicBlock*) m3;
+
+    /* the loop has the conditional jump */
+    if (R->s_mode & T_LBL) {
+        insert_backpatch_conds(get_backpatch_branch(R), codeB, exitB);
+    } else {
+        Builder.SetInsertPoint(loopB);
+        Builder.CreateCondBr(cond, codeB, exitB);
+    }
+
+    /* Since it's a do-statement, the start jumps straight into the code */
+    Builder.SetInsertPoint(startB);
+    Builder.CreateBr(codeB);
+
+    codeB = get_prev_block(exitB);
+    Builder.SetInsertPoint(codeB);
+    Builder.CreateBr(loopB);
+
+    insert_loop_gotos(loopB, exitB);
+
+    endloopscope(0);
+    Builder.SetInsertPoint(TheBlock);
 }
 
 /*
@@ -485,6 +525,7 @@ dofor (void* mS, void* m1, struct sem_rec *R1, void* m2, struct sem_rec *R2,
         Builder.CreateCondBr(cond, codeB, exitB);
     }
 
+    /* for's jump to the 'increment' which then jumps to the conditional */
     codeB = get_prev_block(exitB);
     Builder.SetInsertPoint(codeB);
     Builder.CreateBr(incB);
@@ -492,18 +533,7 @@ dofor (void* mS, void* m1, struct sem_rec *R1, void* m2, struct sem_rec *R2,
     Builder.SetInsertPoint(incB);
     Builder.CreateBr(condB);
 
-    for (auto &pair : break_blocks) {
-        BasicBlock *B  = pair.first;
-        BasicBlock::iterator it = pair.second;
-        Instruction *br = BranchInst::Create(exitB);
-        B->getInstList().insertAfter(it, br);
-    }
-    for (auto &pair : cont_blocks) {
-        BasicBlock *B  = pair.first;
-        BasicBlock::iterator it = pair.second;
-        Instruction *br = BranchInst::Create(incB);
-        B->getInstList().insertAfter(it, br);
-    }
+    insert_loop_gotos(incB, exitB);
 
     endloopscope(0);
     Builder.SetInsertPoint(TheBlock);
@@ -654,18 +684,7 @@ dowhile (void* mS, void* m1,
      * loop just after the last instruction recorded when that block had a
      * break statement.
      */
-    for (auto &pair : break_blocks) {
-        BasicBlock *B  = pair.first;
-        BasicBlock::iterator it = pair.second;
-        Instruction *br = BranchInst::Create(exitB);
-        B->getInstList().insertAfter(it, br);
-    }
-    for (auto &pair : cont_blocks) {
-        BasicBlock *B  = pair.first;
-        BasicBlock::iterator it = pair.second;
-        Instruction *br = BranchInst::Create(loopB);
-        B->getInstList().insertAfter(it, br);
-    }
+    insert_loop_gotos(loopB, exitB);
 
     endloopscope(0);
     Builder.SetInsertPoint(TheBlock);
@@ -1116,20 +1135,45 @@ startloopscope ()
 /*
  * string - generate code for a string
  */
-struct sem_rec *string(const char *s)
+struct sem_rec *
+string (const char *s)
 {
-   fprintf(stderr, "sem: string not implemented\n");
-   return ((struct sem_rec *) NULL);
+    struct sem_rec *R;
+    R = node(currtemp(), T_STR, NULL, NULL);
+    R->anything = (void*) Builder.CreateGlobalStringPtr(s, s);
+    return R;
 }
 
 void
 init_IR ()
 {
+    struct id_entry *E;
+	FunctionType *var_arg;
+    Constant *F;
+    std::string fname = "printf";
+
     TheModule = llvm::make_unique<Module>("LEROY", TheContext);
+
+    /* Add printf to our internal data structure */
+	var_arg = FunctionType::get(IntegerType::getInt32Ty(TheContext),
+                PointerType::get(Type::getInt8Ty(TheContext), 0), true);
+    F = TheModule->getOrInsertFunction("printf",
+            FunctionType::get(IntegerType::getInt32Ty(TheContext), var_arg));
+
+    E = (struct id_entry*) malloc(sizeof(struct id_entry));
+    E->i_type = 0;
+	E->i_scope = GLOBAL;
+	E->i_defined = true;
+    E->anything = (void*) F;
+
+    global_entries[fname] = E;
 }
 
 void
 emit_IR ()
 {
     TheModule->print(outs(), nullptr);
+
+    for (auto &E : global_entries)
+        free(E.second);
 }

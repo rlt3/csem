@@ -23,6 +23,7 @@ main (int argc, char **argv)
     enterblock();
     initlex();
     enterblock();
+
     if (yyparse())
         yyerror("syntax error");
     else
