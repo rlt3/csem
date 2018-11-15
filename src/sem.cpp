@@ -83,12 +83,12 @@ struct SCBranch {
      * equivalent of merging patch lists.
      */
     void
-    merge_backpatch (bool branch, BasicBlock **patch)
+    merge_backpatch (bool branch, SCBranch *other)
     {
         if (branch)
-            trueB = patch;
+            trueB = other->trueB;
         else
-            falseB = patch;
+            falseB = other->falseB;
     }
 
     /*
@@ -137,14 +137,23 @@ create_backpatch_branch (BasicBlock *insert, struct sem_rec *R)
     return &backpatch_br.back();
 }
 
+SCBranch *
+get_backpatch_branch (struct sem_rec *R)
+{
+    return (SCBranch*) R->anything;
+}
+
 /*
  * Create a record of the latest backpatch locations. These records will
  * usually be used to update existing backpatch branches and then merged.
  */
 struct sem_rec *
-create_backpatch_records (BasicBlock **trueB, BasicBlock **falseB)
+create_backpatch_record (SCBranch *B)
 {
-    return node(0, T_LBL, (struct sem_rec*) trueB, (struct sem_rec*) falseB);
+    struct sem_rec *R;
+    R = node(0, T_LBL, NULL, NULL);
+    R->anything = (void*) B;
+    return R;
 }
 
 /*
@@ -323,9 +332,33 @@ short_branch_list (int type, struct sem_rec *L, void* m, struct sem_rec *R)
  * ccand - logical and
  */
 struct sem_rec *
-ccand (struct sem_rec *L, void* m, struct sem_rec *R)
+ccand (struct sem_rec *e1, void* m, struct sem_rec *e2)
 {
-    return short_branch_list(0, L, m, R);
+    SCBranch *L, *R;
+    BasicBlock *prev;
+    BasicBlock *curr;
+
+    curr = (BasicBlock*) m;
+    prev = get_prev_block(curr);
+
+    if ((e1->s_mode & T_LBL) == 0) {
+        L = create_backpatch_branch(prev, e1);
+    } else {
+        L = get_backpatch_branch(e1);
+    }
+
+    if ((e2->s_mode & T_LBL) == 0) {
+        R = create_backpatch_branch(curr, e2);
+    } else {
+        R = get_backpatch_branch(e2);
+    }
+
+    L->update_backpatch(true, curr);
+    L->merge_backpatch(false, R);
+
+    fprintf(stderr, "ccand: true: %p, false: %p\n", R->trueB, R->falseB);
+
+    return create_backpatch_record(R);
 }
 
 /*
@@ -477,7 +510,6 @@ doif (void* mS, struct sem_rec *R, void* m1, void* m2)
 {
     Value *cond;
     BasicBlock *startB, *thenB, *mergeB;
-    struct sem_rec *next;
     SCBranch *SC;
 
     cond = (Value*) R->anything;
@@ -486,9 +518,20 @@ doif (void* mS, struct sem_rec *R, void* m1, void* m2)
     mergeB = (BasicBlock*) m2;
 
     /* If there are multiple insertion points for short-circuiting */
-    if (R->s_mode & T_ARRAY) {
+    if (R->s_mode & T_LBL) {
         fprintf(stderr, "IF: startB: `%s', thenB: `%s', mergeB: `%s'\n",
                 startB->getName().data(), thenB->getName().data(), mergeB->getName().data());
+        SC = get_backpatch_branch(R);
+        SC->update_backpatch(true, thenB);
+        SC->update_backpatch(false, mergeB);
+        for (auto &Cond : backpatch_br) {
+            //Instruction *br = Cond.createBr();
+            //Cond.insert->getInstList().insertAfter(Cond.pos, br);
+            fprintf(stderr, "true: %p, false: %p\n", 
+                    Cond.trueB, Cond.falseB);
+            //fprintf(stderr, "true: %s, false: %s\n", 
+            //        (*Cond.trueB)->getName().data(), (*Cond.falseB)->getName().data());
+        }
     } else {
         Builder.SetInsertPoint(startB);
         Builder.CreateCondBr(cond, thenB, mergeB);
