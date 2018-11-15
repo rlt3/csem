@@ -258,14 +258,14 @@ create_func_alloca (Function *F, int type, int width, std::string var)
     IRBuilder<> B(&F->getEntryBlock(), F->getEntryBlock().begin());
 
     if (width > 1)
-        arr_size = ConstantInt::get(Type::getInt8Ty(TheContext), width);
+        arr_size = ConstantInt::get(Type::getInt32Ty(TheContext), width);
 
     switch (type) {
         case 'f':
             return B.CreateAlloca(Type::getDoubleTy(TheContext), arr_size, var);
         case 'i':
         default:
-            return B.CreateAlloca(Type::getInt8Ty(TheContext), arr_size, var);
+            return B.CreateAlloca(Type::getInt32Ty(TheContext), arr_size, var);
     }
 }
 
@@ -279,7 +279,7 @@ cast_pair (struct sem_rec *left, struct sem_rec *right)
     if ((left->s_mode & T_DOUBLE) && !(right->s_mode & T_DOUBLE))
         R = Builder.CreateSIToFP(R, Type::getDoubleTy(TheContext), "cast");
     else if ((left->s_mode & T_INT) && !(right->s_mode & T_INT))
-        R = Builder.CreateFPToSI(R, Type::getInt8Ty(TheContext), "cast");
+        R = Builder.CreateFPToSI(R, Type::getInt32Ty(TheContext), "cast");
     return R;
 }
 
@@ -298,12 +298,12 @@ global_alloc (struct id_entry *E, int width)
 
     if (E->i_type & T_INT) {
         if (E->i_type & T_ARRAY) {
-            type = ArrayType::get(Type::getInt8Ty(TheContext), width);
+            type = ArrayType::get(Type::getInt32Ty(TheContext), width);
             init = ConstantAggregateZero::get(type);
         }
         else {
-            type = Type::getInt8Ty(TheContext);
-            init = ConstantInt::get(Type::getInt8Ty(TheContext), 0);
+            type = Type::getInt32Ty(TheContext);
+            init = ConstantInt::get(Type::getInt32Ty(TheContext), 0);
         }
     }
     else {
@@ -314,10 +314,9 @@ global_alloc (struct id_entry *E, int width)
         }
         else {
             type = Type::getDoubleTy(TheContext);
-            init = ConstantInt::get(Type::getInt8Ty(TheContext), 0);
+            init = ConstantInt::get(Type::getInt32Ty(TheContext), 0);
         }
     }
-
 
     TheModule->getOrInsertGlobal(name, type);
     var = TheModule->getNamedGlobal(name);
@@ -471,7 +470,7 @@ con (const char *x)
      */
     R = node(currtemp(), T_INT, NULL, NULL);
     sscanf(x, "%d", &v);
-    R->anything = (void*) ConstantInt::get(Type::getInt8Ty(TheContext), v);
+    R->anything = (void*) ConstantInt::get(Type::getInt32Ty(TheContext), v);
     R->s_mode |= T_INT;
     R->id = E;
     return R;
@@ -774,14 +773,14 @@ fhead (struct id_entry *E)
     for (i = 0; i < formalnum; i++) {
         switch (formaltypes[i]) {
             case 'f': args.push_back(Type::getDoubleTy(TheContext)); break;
-            case 'i': args.push_back(Type::getInt8Ty(TheContext)); break;
+            case 'i': args.push_back(Type::getInt32Ty(TheContext)); break;
             default:  yyerror("type failure!");
         }
     }
 
     /* handle function return type */
     switch (E->i_type) {
-        case T_INT:    func_type = Type::getInt8Ty(TheContext); break;
+        case T_INT:    func_type = Type::getInt32Ty(TheContext); break;
         case T_DOUBLE: func_type = Type::getDoubleTy(TheContext); break;
     }
 	FT = FunctionType::get(func_type, makeArrayRef(args), false);
@@ -804,7 +803,7 @@ fhead (struct id_entry *E)
     B = BasicBlock::Create(TheContext, "entry", F);
     Builder.SetInsertPoint(B);
 
-    /* Start rebuilding the local values and labels for the function scope */
+    /* The following resets all data structures for the function scope. */
     backpatch_br.clear();
     backpatch_loc.clear();
     local_values.clear();
@@ -933,9 +932,18 @@ indx (struct sem_rec *x, struct sem_rec *i)
 
     R = node(currtemp(), x->s_mode, NULL, NULL);
     R->anything = (void*) Builder.CreateGEP(arr, idx, "indx");
-    //if (x->id->i_scope == GLOBAL) {
-    //    R->anything = (void*) Builder.CreateLoad((Value*) R->anything, "indxder");
-    //}
+    /*
+     * Global arrays are specified differently and must have their GEP'd
+     * pointer casted to a regular integer pointer before storing.
+     */
+    if (x->id->i_scope == GLOBAL && x->id->i_type & T_ARRAY) {
+        Type *type;
+        if (x->id->i_type & T_INT)
+            type = PointerType::get(Type::getInt32Ty(TheContext), 0);
+        else
+            type = PointerType::get(Type::getDoubleTy(TheContext), 0);
+        R->anything = (void*) Builder.CreateBitCast((Value*) R->anything, type, "ptrcast");
+    }
     R->id = x->id;
     return R;
 }
@@ -993,9 +1001,8 @@ struct sem_rec *n()
 struct sem_rec *
 op1 (const char *op, struct sem_rec *y)
 {
-    Value *variable;
-
-    variable = (Value*) y->anything;
+    std::string var(y->id->i_name);
+    Value *variable = (Value*) y->anything;
 
     switch (*op) {
         case '@':
@@ -1005,12 +1012,19 @@ op1 (const char *op, struct sem_rec *y)
              * a pointer. Then we create a 'load' or dereference of that
              * variable and overwrite the semantic record with that value.
              */
-            y->anything = (void*) Builder.CreateLoad(variable, std::string(y->id->i_name));
+            y->anything = (void*) Builder.CreateLoad(variable, var);
             break;
         case '~':
+            y->anything = (void*) Builder.CreateNot(variable, var);
+            break;
         case '-':
+            if (y->s_mode & T_INT)
+                y->anything = (void*) Builder.CreateNeg(variable, var);
+            else
+                y->anything = (void*) Builder.CreateFNeg(variable, var);
+            break;
         default:
-           fprintf(stderr, "sem: op1 %s not implemented\n", op);
+            fprintf(stderr, "sem: op1 %s not implemented\n", op);
             return NULL;
     }
 
@@ -1188,7 +1202,6 @@ struct sem_rec *
 string (const char *s)
 {
     struct sem_rec *R;
-    fprintf(stderr, "STRING: `%s'\n", s);
     R = node(currtemp(), T_STR, NULL, NULL);
     R->anything = (void*) Builder.CreateGlobalStringPtr(s, s);
     return R;
@@ -1206,7 +1219,7 @@ init_IR ()
 
     /* Add printf to our internal data structure */
 	var_arg = FunctionType::get(IntegerType::getInt32Ty(TheContext),
-                PointerType::get(Type::getInt8Ty(TheContext), 0), true);
+                PointerType::get(Type::getInt32Ty(TheContext), 0), true);
     F = TheModule->getOrInsertFunction("printf",
             FunctionType::get(IntegerType::getInt32Ty(TheContext), var_arg));
 
