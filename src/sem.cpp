@@ -9,6 +9,8 @@ extern "C" {
 }
 
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/ExecutionEngine/ExecutionEngine.h"
+#include "llvm/Target/TargetMachine.h"
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/IR/BasicBlock.h"
@@ -284,8 +286,23 @@ cast_pair (struct sem_rec *left, struct sem_rec *right)
 void
 global_alloc (struct id_entry *E, int width)
 {
-    Function *F = Builder.GetInsertBlock()->getParent();
-    E->anything = (void*) create_func_alloca(F, E->i_type, width, E->i_name);
+    std::string name(E->i_name);
+    Type *type;
+
+    if (E->i_type & T_INT) {
+        if (E->i_type & T_ARRAY)
+            type = ArrayType::get(Type::getInt8Ty(TheContext), width);
+        else
+            type = Type::getInt8Ty(TheContext);
+    }
+    else {
+        if (E->i_type & T_ARRAY)
+            type = ArrayType::get(Type::getDoubleTy(TheContext), width);
+        else
+            type = Type::getDoubleTy(TheContext);
+    }
+
+    E->anything = (void*) TheModule->getOrInsertGlobal(name, type);
 }
 
 /*
@@ -861,6 +878,7 @@ id (const char *x)
 {
     struct sem_rec *R;
     struct id_entry *E;
+    std::string name(x);
 
     E = lookup(x, 0);
     if (!E) {
@@ -868,8 +886,14 @@ id (const char *x)
     }
 
     R = node(currtemp(), E->i_type, NULL, NULL);
-    R->anything = (void*) local_values[std::string(x)];
     R->id = E;
+
+    /* if it's a global value */
+    if (local_values.find(name) == local_values.end() && E->anything)
+        R->anything = E->anything;
+    else
+        R->anything = (void*) local_values[std::string(x)];
+
     return R;
 }
 
@@ -1139,6 +1163,7 @@ struct sem_rec *
 string (const char *s)
 {
     struct sem_rec *R;
+    fprintf(stderr, "STRING: `%s'\n", s);
     R = node(currtemp(), T_STR, NULL, NULL);
     R->anything = (void*) Builder.CreateGlobalStringPtr(s, s);
     return R;

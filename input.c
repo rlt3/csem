@@ -1,7 +1,7 @@
+int g;
+
+int
 main (int x) {
-    do {
-        x = x + 1;
-    } while (x > 0 && x < 5);
-    printf("%d", x);
+    g = 5;
     return 0;
 }
