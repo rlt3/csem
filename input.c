@@ -1,7 +1,12 @@
-int g;
+int g[5];
+
 
 int
 main (int x) {
-    g = 5;
+    int y[5];
+    if (x > 4)
+        return 0;
+    y[x] = 5;
+    g[x] = 5;
     return 0;
 }

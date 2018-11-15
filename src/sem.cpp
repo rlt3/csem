@@ -283,26 +283,47 @@ cast_pair (struct sem_rec *left, struct sem_rec *right)
     return R;
 }
 
+/*
+ * Globals must have an initialized value or else they are marked as being
+ * external. This function specifies a global value of a specific width and
+ * then initializes those bytes to 0, effectively making its linkage internal.
+ */
 void
 global_alloc (struct id_entry *E, int width)
 {
     std::string name(E->i_name);
+    GlobalVariable *var;
     Type *type;
+    Constant *init;
 
     if (E->i_type & T_INT) {
-        if (E->i_type & T_ARRAY)
+        if (E->i_type & T_ARRAY) {
             type = ArrayType::get(Type::getInt8Ty(TheContext), width);
-        else
+            init = ConstantAggregateZero::get(type);
+        }
+        else {
             type = Type::getInt8Ty(TheContext);
+            init = ConstantInt::get(Type::getInt8Ty(TheContext), 0);
+        }
     }
     else {
-        if (E->i_type & T_ARRAY)
+        init = ConstantInt::get(Type::getDoubleTy(TheContext), 0);
+        if (E->i_type & T_ARRAY) {
             type = ArrayType::get(Type::getDoubleTy(TheContext), width);
-        else
+            init = ConstantAggregateZero::get(type);
+        }
+        else {
             type = Type::getDoubleTy(TheContext);
+            init = ConstantInt::get(Type::getInt8Ty(TheContext), 0);
+        }
     }
 
-    E->anything = (void*) TheModule->getOrInsertGlobal(name, type);
+
+    TheModule->getOrInsertGlobal(name, type);
+    var = TheModule->getNamedGlobal(name);
+    var->setInitializer(init);
+
+    E->anything = (void*) var;
 }
 
 /*
@@ -888,11 +909,12 @@ id (const char *x)
     R = node(currtemp(), E->i_type, NULL, NULL);
     R->id = E;
 
-    /* if it's a global value */
-    if (local_values.find(name) == local_values.end() && E->anything)
+    if (E->i_scope == GLOBAL) {
         R->anything = E->anything;
-    else
+    }
+    else {
         R->anything = (void*) local_values[std::string(x)];
+    }
 
     return R;
 }
@@ -911,6 +933,9 @@ indx (struct sem_rec *x, struct sem_rec *i)
 
     R = node(currtemp(), x->s_mode, NULL, NULL);
     R->anything = (void*) Builder.CreateGEP(arr, idx, "indx");
+    //if (x->id->i_scope == GLOBAL) {
+    //    R->anything = (void*) Builder.CreateLoad((Value*) R->anything, "indxder");
+    //}
     R->id = x->id;
     return R;
 }
