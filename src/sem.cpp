@@ -79,19 +79,6 @@ struct SCBranch {
     { }
 
     /*
-     * Update a specific branch's location with the patch location. This is an
-     * equivalent of merging patch lists.
-     */
-    void
-    merge_backpatch (bool branch, SCBranch *other)
-    {
-        if (branch)
-            trueB = other->trueB;
-        else
-            falseB = other->falseB;
-    }
-
-    /*
      * Actually update a branch with a real label value.
      */
     void
@@ -112,6 +99,40 @@ struct SCBranch {
 
 static std::list<SCBranch> backpatch_br;
 static std::list<BasicBlock*> backpatch_loc;
+
+/*
+ * Update all locations that match the true/false location of L to the
+ * true/false location of R. This is effectively merges multiples locations of
+ * other SCBranch's to a single location so that location can be update later.
+ */
+void
+merge_backpatch (bool branch, SCBranch *L, SCBranch *R)
+{
+    for (auto &Cond : backpatch_br) {
+        if (branch && Cond.trueB == L->trueB) {
+            Cond.trueB = R->trueB;
+        }
+        else if (!branch && Cond.falseB == L->falseB)
+            Cond.falseB = R->falseB;
+    }
+}
+
+/*
+ * In the function for processing some logical conditions, the labels for where
+ * to jump for the true and false branches will be known. This backpatches
+ * those labels and finally inserts all the conditional branches now that all
+ * information is present.
+ */
+void
+insert_backpatch_conds (SCBranch *SC, BasicBlock *trueB, BasicBlock *falseB)
+{
+    SC->update_backpatch(true, trueB);
+    SC->update_backpatch(false, falseB);
+    for (auto &Cond : backpatch_br) {
+        Instruction *br = Cond.createBr();
+        Cond.insert->getInstList().insertAfter(Cond.pos, br);
+    }
+}
 
 /*
  * Create a location that all SCBranch objects will hold.
@@ -154,20 +175,6 @@ create_backpatch_record (SCBranch *B)
     R = node(0, T_LBL, NULL, NULL);
     R->anything = (void*) B;
     return R;
-}
-
-/*
- * Get a branch's backpatch location from a record.
- */
-BasicBlock **
-get_backpatch_loc (bool branch, struct sem_rec *R)
-{
-    BasicBlock **loc;
-    if (branch)
-        loc = (BasicBlock**) R->back.s_link;
-    else
-        loc = (BasicBlock**) R->s_false;
-    return loc;
 }
 
 /*
@@ -220,7 +227,6 @@ create_label_entry (std::string id, int declared)
         local_labels[id] = std::make_pair(B, declared);
     } else if (local_labels[id].second && declared) {
         yyerror("cannot declare label twice within scope");
-        exit(1);
     }
 
     local_labels[id].second = declared;
@@ -328,11 +334,8 @@ short_branch_list (int type, struct sem_rec *L, void* m, struct sem_rec *R)
     return L;
 }
 
-/*
- * ccand - logical and
- */
 struct sem_rec *
-ccand (struct sem_rec *e1, void* m, struct sem_rec *e2)
+logical_backpatch (int type, struct sem_rec *e1, void *m, struct sem_rec *e2)
 {
     SCBranch *L, *R;
     BasicBlock *prev;
@@ -353,12 +356,24 @@ ccand (struct sem_rec *e1, void* m, struct sem_rec *e2)
         R = get_backpatch_branch(e2);
     }
 
-    L->update_backpatch(true, curr);
-    L->merge_backpatch(false, R);
-
-    fprintf(stderr, "ccand: true: %p, false: %p\n", R->trueB, R->falseB);
+    if (type == 1) { /* AND */
+        L->update_backpatch(true, curr);
+        merge_backpatch(false, L, R);
+    } else { /* OR */
+        L->update_backpatch(false, curr);
+        merge_backpatch(true, L, R);
+    }
 
     return create_backpatch_record(R);
+}
+
+/*
+ * ccand - logical and
+ */
+struct sem_rec *
+ccand (struct sem_rec *e1, void* m, struct sem_rec *e2)
+{
+    return logical_backpatch(1, e1, m, e2);
 }
 
 /*
@@ -383,9 +398,9 @@ struct sem_rec *ccnot(struct sem_rec *e)
  * ccor - logical or
  */
 struct sem_rec *
-ccor (struct sem_rec *L, void* m, struct sem_rec *R)
+ccor (struct sem_rec *e1, void* m, struct sem_rec *e2)
 {
-    return short_branch_list(1, L, m, R);
+    return logical_backpatch(0, e1, m, e2);
 }
 
 /*
@@ -463,8 +478,12 @@ dofor (void* mS, void* m1, struct sem_rec *R1, void* m2, struct sem_rec *R2,
     Builder.SetInsertPoint(startB);
     Builder.CreateBr(condB);
 
-    Builder.SetInsertPoint(condB);
-    Builder.CreateCondBr(cond, codeB, exitB);
+    if (R1->s_mode & T_LBL) {
+        insert_backpatch_conds(get_backpatch_branch(R1), codeB, exitB);
+    } else {
+        Builder.SetInsertPoint(condB);
+        Builder.CreateCondBr(cond, codeB, exitB);
+    }
 
     codeB = get_prev_block(exitB);
     Builder.SetInsertPoint(codeB);
@@ -510,28 +529,15 @@ doif (void* mS, struct sem_rec *R, void* m1, void* m2)
 {
     Value *cond;
     BasicBlock *startB, *thenB, *mergeB;
-    SCBranch *SC;
 
     cond = (Value*) R->anything;
     startB = (BasicBlock*) mS;
     thenB = (BasicBlock*) m1;
     mergeB = (BasicBlock*) m2;
 
-    /* If there are multiple insertion points for short-circuiting */
+    /* If the semantic record is a backpatch label */
     if (R->s_mode & T_LBL) {
-        fprintf(stderr, "IF: startB: `%s', thenB: `%s', mergeB: `%s'\n",
-                startB->getName().data(), thenB->getName().data(), mergeB->getName().data());
-        SC = get_backpatch_branch(R);
-        SC->update_backpatch(true, thenB);
-        SC->update_backpatch(false, mergeB);
-        for (auto &Cond : backpatch_br) {
-            //Instruction *br = Cond.createBr();
-            //Cond.insert->getInstList().insertAfter(Cond.pos, br);
-            fprintf(stderr, "true: %p, false: %p\n", 
-                    Cond.trueB, Cond.falseB);
-            //fprintf(stderr, "true: %s, false: %s\n", 
-            //        (*Cond.trueB)->getName().data(), (*Cond.falseB)->getName().data());
-        }
+        insert_backpatch_conds(get_backpatch_branch(R), thenB, mergeB);
     } else {
         Builder.SetInsertPoint(startB);
         Builder.CreateCondBr(cond, thenB, mergeB);
@@ -560,8 +566,13 @@ doifelse (void* mS, struct sem_rec *R1, void* m1, struct sem_rec *R2,
     elseB  = (BasicBlock*) m2;
     mergeB = (BasicBlock*) m3;
 
-    Builder.SetInsertPoint(startB);
-    Builder.CreateCondBr(cond, thenB, elseB);
+    /* If the semantic record is a backpatch label */
+    if (R1->s_mode & T_LBL) {
+        insert_backpatch_conds(get_backpatch_branch(R1), thenB, elseB);
+    } else {
+        Builder.SetInsertPoint(startB);
+        Builder.CreateCondBr(cond, thenB, elseB);
+    }
 
     thenB = get_prev_block(elseB);
     Builder.SetInsertPoint(thenB);
@@ -618,8 +629,12 @@ dowhile (void* mS, void* m1,
     exitB = (BasicBlock*) m3;
 
     /* the loop has the conditional jump */
-    Builder.SetInsertPoint(loopB);
-    Builder.CreateCondBr(cond, codeB, exitB);
+    if (R->s_mode & T_LBL) {
+        insert_backpatch_conds(get_backpatch_branch(R), codeB, exitB);
+    } else {
+        Builder.SetInsertPoint(loopB);
+        Builder.CreateCondBr(cond, codeB, exitB);
+    }
 
     /* the main block before the while jumps to the loop */
     Builder.SetInsertPoint(startB);
@@ -733,6 +748,8 @@ fhead (struct id_entry *E)
     Builder.SetInsertPoint(B);
 
     /* Start rebuilding the local values and labels for the function scope */
+    backpatch_br.clear();
+    backpatch_loc.clear();
     local_values.clear();
     local_labels.clear();
     label_index = 0;
@@ -810,7 +827,6 @@ ftail()
                 Builder.CreateBr(&(*std::next(it)));
             } else {
                 yyerror("cannot having implicit fallthrough on last block!");
-                exit(1);
             }
         }
     }
@@ -830,7 +846,6 @@ id (const char *x)
     E = lookup(x, 0);
     if (!E) {
         yyerror("undefined reference");
-        exit(1);
     }
 
     R = node(currtemp(), E->i_type, NULL, NULL);

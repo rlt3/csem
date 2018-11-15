@@ -8,6 +8,7 @@
      5. etc.
   */
 #include <stdio.h>
+#include <stdlib.h>
 
 extern "C" {
     #include "cc.h"
@@ -27,6 +28,7 @@ void
 yyerror (const char *msg)
 {
    fprintf(stderr, " %s.  Line %d\n", msg, lineno);
+   exit(1);
 }
 
 %}
