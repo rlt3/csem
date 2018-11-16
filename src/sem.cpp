@@ -72,6 +72,7 @@ struct SCBranch {
     BasicBlock **trueB;
     BasicBlock **falseB;
     Value *cond;
+    int is_negated;
 
     SCBranch (BasicBlock *insert, Value *cond, BasicBlock **t, BasicBlock **f)
         : insert(insert)
@@ -79,6 +80,7 @@ struct SCBranch {
         , trueB(t)
         , falseB(f)
         , cond(cond)
+        , is_negated(false)
     { }
 
     /*
@@ -93,10 +95,19 @@ struct SCBranch {
             *falseB = label;
     }
 
+    void
+    negate ()
+    {
+        is_negated = !is_negated;
+    }
+
     Instruction *
     createBr ()
     {
-        return BranchInst::Create(*trueB, *falseB, cond);
+        if (is_negated)
+            return BranchInst::Create(*falseB, *trueB, cond);
+        else
+            return BranchInst::Create(*trueB, *falseB, cond);
     }
 };
 
@@ -450,9 +461,12 @@ ccexpr (struct sem_rec *R)
  * ccnot - logical not
  */
 struct sem_rec *
-ccnot (struct sem_rec *e)
+ccnot (void *mS, struct sem_rec *E)
 {
-    return e;
+    BasicBlock *prev = (BasicBlock*) mS;
+    SCBranch *N = create_backpatch_branch(prev, E);
+    N->negate();
+    return create_backpatch_record(N);
 }
 
 /*

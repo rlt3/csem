@@ -1,6 +1,8 @@
 int
 main (int x) {
-    if (!(x = 5))
-        return 0;
-    return 5;
+    int y;
+    y = x;
+    if (!(x = x - 2) && x == 0)
+        return y;
+    return 0;
 }

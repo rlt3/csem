@@ -177,7 +177,7 @@ cexpr   : expr EQ expr          { $$ = rel("==", $1, $3); }
         | expr GT expr          { $$ = rel(">",  $1, $3); }
         | cexpr AND m cexpr    { $$ = ccand($1, $3, $4); }
         | cexpr OR m cexpr     { $$ = ccor($1, $3, $4); }
-        | NOT cexpr             { $$ = ccnot($2); }
+        | mS NOT cexpr             { $$ = ccnot($1, $3); }
         | expr                  { $$ = ccexpr($1); }
         ;
 

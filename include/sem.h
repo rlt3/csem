@@ -7,7 +7,7 @@ struct sem_rec *call(const char *, struct sem_rec *);
 struct sem_rec *cast(struct sem_rec *, int);
 struct sem_rec *ccand(struct sem_rec *, void*, struct sem_rec *);
 struct sem_rec *ccexpr(struct sem_rec *);
-struct sem_rec *ccnot(struct sem_rec *);
+struct sem_rec *ccnot(void*, struct sem_rec *);
 struct sem_rec *ccor(struct sem_rec *, void*, struct sem_rec *);
 struct sem_rec *con(const char *);
 void dobreak();
