@@ -73,14 +73,16 @@ struct SCBranch {
     BasicBlock **falseB;
     Value *cond;
     int is_negated;
+    unsigned int scope;
 
-    SCBranch (BasicBlock *insert, Value *cond, BasicBlock **t, BasicBlock **f)
+    SCBranch (BasicBlock *insert, Value *cond, BasicBlock **t, BasicBlock **f, int scope)
         : insert(insert)
         , pos(std::prev(insert->end()))
         , trueB(t)
         , falseB(f)
         , cond(cond)
         , is_negated(false)
+        , scope(scope)
     { }
 
     /*
@@ -111,6 +113,7 @@ struct SCBranch {
     }
 };
 
+static unsigned int backpatch_scope = 0;
 static std::list<SCBranch> backpatch_br;
 static std::list<BasicBlock*> backpatch_loc;
 
@@ -123,9 +126,8 @@ void
 merge_backpatch (bool branch, SCBranch *L, SCBranch *R)
 {
     for (auto &Cond : backpatch_br) {
-        if (branch && Cond.trueB == L->trueB) {
+        if (branch && Cond.trueB == L->trueB)
             Cond.trueB = R->trueB;
-        }
         else if (!branch && Cond.falseB == L->falseB)
             Cond.falseB = R->falseB;
     }
@@ -143,9 +145,13 @@ insert_backpatch_conds (SCBranch *SC, BasicBlock *trueB, BasicBlock *falseB)
     SC->update_backpatch(true, trueB);
     SC->update_backpatch(false, falseB);
     for (auto &Cond : backpatch_br) {
+        /* skip other scopes if present */
+        if (Cond.scope != backpatch_scope)
+            continue;
         Instruction *br = Cond.createBr();
         Cond.insert->getInstList().insertAfter(Cond.pos, br);
     }
+    backpatch_scope--;
 }
 
 void
@@ -179,7 +185,7 @@ create_backpatch_branch (BasicBlock *insert, struct sem_rec *R)
 {
     BasicBlock **t = create_backpatch_loc(NULL);
     BasicBlock **f = create_backpatch_loc(NULL);
-    SCBranch b(insert, (Value*) R->anything, t, f);
+    SCBranch b(insert, (Value*) R->anything, t, f, backpatch_scope);
     backpatch_br.push_back(b);
     return &backpatch_br.back();
 }
@@ -992,11 +998,14 @@ labeldcl (const char *id)
 }
 
 /*
- * Return the current block.
+ * Return the current block. If a new backpatching scope should be created at
+ * the current block, then increment the scope number.
  */
 void*
-m_get ()
+m_get (int new_backpatch_scope)
 {
+    if (new_backpatch_scope)
+        backpatch_scope++;
     return TheBlock;
 }
 

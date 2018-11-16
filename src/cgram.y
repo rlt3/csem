@@ -59,7 +59,7 @@ yyerror (const char *msg)
 %type <rec_ptr> cexpro prog
 %type <id_ptr> dcl dclr fname
 %type <inttype> type
-%type <void_ptr> m mS
+%type <void_ptr> m mS mM
 %%
 prog    : externs		{}
         ;
@@ -112,7 +112,8 @@ args    : type dclr		{ dcl($2, $1, PARAM); }
 s	:			{ startloopscope(); }
 	;
 
-mS      :                       { $$ = m_get(); }
+mS      :                       { $$ = m_get(1); }
+mM      :                       { $$ = m_get(0); }
 m       :                       { $$ = m(); }
         ;
 
@@ -177,7 +178,7 @@ cexpr   : expr EQ expr          { $$ = rel("==", $1, $3); }
         | expr GT expr          { $$ = rel(">",  $1, $3); }
         | cexpr AND m cexpr    { $$ = ccand($1, $3, $4); }
         | cexpr OR m cexpr     { $$ = ccor($1, $3, $4); }
-        | mS NOT cexpr             { $$ = ccnot($1, $3); }
+        | mM NOT cexpr             { $$ = ccnot($1, $3); }
         | expr                  { $$ = ccexpr($1); }
         ;
 

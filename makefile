@@ -39,7 +39,7 @@ build:
 	rm tmp.ll
 
 test:
-	./$(TARGET) < input.c
+	./tests/run.sh
 
 clean:
 	rm -f $(TARGET) src/cgram.cpp obj/*.o 
