@@ -427,19 +427,32 @@ ccand (struct sem_rec *e1, void* m, struct sem_rec *e2)
 /*
  * ccexpr - convert arithmetic expression to logical expression
  */
-struct sem_rec *ccexpr(struct sem_rec *e)
+struct sem_rec *
+ccexpr (struct sem_rec *R)
 {
-    fprintf(stderr, "ccexpr: e %p %d\n", (void*) e, e->s_mode);
-    return e;
+    Value *exp, *zero;
+
+    exp = (Value*) R->anything;
+
+    if (R->s_mode == T_INT) {
+        zero = ConstantInt::get(Type::getInt32Ty(TheContext), 0);
+        R->anything = (void*) Builder.CreateICmpNE(exp, zero, "ccexpr");
+    }
+    else {
+        zero = ConstantInt::get(Type::getDoubleTy(TheContext), 0);
+        R->anything = (void*) Builder.CreateFCmpONE(exp, zero, "ccexpr");
+    }
+
+    return R;
 }
 
 /*
  * ccnot - logical not
  */
-struct sem_rec *ccnot(struct sem_rec *e)
+struct sem_rec *
+ccnot (struct sem_rec *e)
 {
-   fprintf(stderr, "sem: ccnot not implemented\n");
-   return ((struct sem_rec *) NULL);
+    return e;
 }
 
 /*
@@ -1180,6 +1193,7 @@ set (const char *op, struct sem_rec *x, struct sem_rec *y)
     }
 
     Builder.CreateStore(value, storage);
+    x->anything = (void*) value;
     return x;
 }
 
@@ -1225,8 +1239,8 @@ init_IR ()
 
     E = (struct id_entry*) malloc(sizeof(struct id_entry));
     E->i_type = 0;
-	E->i_scope = GLOBAL;
-	E->i_defined = true;
+    E->i_scope = GLOBAL;
+    E->i_defined = true;
     E->anything = (void*) F;
 
     global_entries[fname] = E;
